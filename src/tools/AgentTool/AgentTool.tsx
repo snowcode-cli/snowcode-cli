@@ -636,7 +636,11 @@ export const AgentTool = buildTool({
       worktreePath: worktreeInfo?.worktreePath,
       description,
       agentName: name,
-      providerOverride: resolveAgentProvider(name, subagentType, getInitialSettings()) ?? undefined,
+      providerOverride: resolveAgentProvider(
+        name,
+        selectedAgent.agentType,
+        getInitialSettings(),
+      ) ?? undefined,
     };
 
     // Helper to wrap execution with a cwd override: explicit cwd arg (KAIROS)
