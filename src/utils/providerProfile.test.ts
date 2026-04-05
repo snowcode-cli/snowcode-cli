@@ -268,9 +268,10 @@ test('codex launch ignores placeholder codex env keys', async () => {
 
 test('codex launch prefers auth account id over stale persisted value', async () => {
   const codexHome = mkdtempSync(join(tmpdir(), 'snowcode-codex-'))
+  const codexAuthPath = join(codexHome, 'codex-auth.json')
   try {
     writeFileSync(
-      join(codexHome, 'auth.json'),
+      codexAuthPath,
       JSON.stringify({
         access_token: 'codex-live',
         account_id: 'acct_auth',
@@ -287,7 +288,7 @@ test('codex launch prefers auth account id over stale persisted value', async ()
       }),
       goal: 'balanced',
       processEnv: {
-        CODEX_HOME: codexHome,
+        CODEX_AUTH_JSON_PATH: codexAuthPath,
       },
     })
 
