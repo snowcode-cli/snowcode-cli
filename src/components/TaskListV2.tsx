@@ -27,6 +27,13 @@ function byIdAsc(a: Task, b: Task): number {
   }
   return a.id.localeCompare(b.id);
 }
+function formatBlockedTaskLabel(taskId: string, taskMap: Map<string, Task>, maxSubjectWidth = 32): string {
+  const task = taskMap.get(taskId);
+  if (!task) {
+    return `#${taskId}`;
+  }
+  return `#${taskId} ${truncateToWidth(task.subject, maxSubjectWidth)}`;
+}
 export function TaskListV2({
   tasks,
   isStandalone = false
@@ -131,6 +138,7 @@ export function TaskListV2({
   const inProgressCount = tasks.length - completedCount - pendingCount;
   // Unresolved tasks (open or in_progress) block dependent tasks
   const unresolvedTaskIds = new Set(tasks.filter(t_5 => t_5.status !== 'completed').map(t_6 => t_6.id));
+  const taskMap = new Map(tasks.map(task => [task.id, task] as const));
 
   // Check if we need to truncate
   const needsTruncation = tasks.length > maxDisplay;
@@ -184,8 +192,9 @@ export function TaskListV2({
     }
     hiddenSummary = ` … +${parts.join(', ')}`;
   }
+  const blockerLabelWidth = Math.max(18, Math.floor(columns / 3));
   const content = <>
-      {visibleTasks.map(task_0 => <TaskItem key={task_0.id} task={task_0} ownerColor={task_0.owner ? teammateColors[task_0.owner] : undefined} openBlockers={task_0.blockedBy.filter(id_3 => unresolvedTaskIds.has(id_3))} activity={task_0.owner ? teammateActivity[task_0.owner] : undefined} ownerActive={task_0.owner ? activeTeammates.has(task_0.owner) : false} columns={columns} />)}
+      {visibleTasks.map(task_0 => <TaskItem key={task_0.id} task={task_0} ownerColor={task_0.owner ? teammateColors[task_0.owner] : undefined} openBlockers={task_0.blockedBy.filter(id_3 => unresolvedTaskIds.has(id_3)).map(id_4 => formatBlockedTaskLabel(id_4, taskMap, blockerLabelWidth))} activity={task_0.owner ? teammateActivity[task_0.owner] : undefined} ownerActive={task_0.owner ? activeTeammates.has(task_0.owner) : false} columns={columns} />)}
       {maxDisplay > 0 && hiddenSummary && <Text dimColor>{hiddenSummary}</Text>}
     </>;
   if (isStandalone) {

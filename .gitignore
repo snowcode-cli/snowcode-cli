@@ -4,6 +4,7 @@ dist/
 *.cpuprofile
 .env
 .env.*
+.snowcode/
 .snowcode-profile.json
 reports/
 undefined/
