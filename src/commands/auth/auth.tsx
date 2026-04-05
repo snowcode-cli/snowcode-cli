@@ -2,8 +2,8 @@ import * as React from 'react'
 import { useState, useEffect } from 'react'
 import { createServer } from 'node:http'
 import { createHash, randomBytes } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { LocalJSXCommandContext, LocalJSXCommandOnDone } from '../../commands.js'
 import { ConsoleOAuthFlow } from '../../components/ConsoleOAuthFlow.js'
 import { Dialog } from '../../components/design-system/Dialog.js'
@@ -26,6 +26,10 @@ import {
   type AccountType,
 } from '../../utils/accountManager.js'
 import { getClaudeAIOAuthTokens } from '../../utils/auth.js'
+import {
+  parseChatgptAccountId,
+  resolveCodexAuthPath,
+} from '../../services/api/providerConfig.js'
 
 // ─── Antigravity / Google OAuth ────────────────────────────────────────────────
 const AG_REDIRECT_URI = 'http://localhost:51121/oauth-callback'
@@ -191,6 +195,51 @@ function emailFromTokens(tokens: { access_token: string; id_token?: string }): s
   const p = decodeJwtPayload(tokens.access_token)
   if (typeof p.email === 'string') return p.email
   return 'unknown'
+}
+
+function persistCodexOauthSession(tokens: {
+  access_token: string
+  refresh_token?: string
+  id_token?: string
+}): void {
+  try {
+    const authPath = resolveCodexAuthPath()
+    const accountId =
+      parseChatgptAccountId(tokens.access_token) ??
+      parseChatgptAccountId(tokens.id_token)
+
+    mkdirSync(dirname(authPath), { recursive: true })
+    writeFileSync(
+      authPath,
+      JSON.stringify(
+        {
+          access_token: tokens.access_token,
+          ...(tokens.refresh_token
+            ? { refresh_token: tokens.refresh_token }
+            : {}),
+          ...(tokens.id_token ? { id_token: tokens.id_token } : {}),
+          ...(accountId ? { account_id: accountId } : {}),
+          tokens: {
+            access_token: tokens.access_token,
+            ...(tokens.refresh_token
+              ? { refresh_token: tokens.refresh_token }
+              : {}),
+            ...(tokens.id_token ? { id_token: tokens.id_token } : {}),
+            ...(accountId ? { account_id: accountId } : {}),
+          },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    )
+    appendAuthLog(
+      'codex_oauth',
+      `codex auth.json synced path=${authPath}${accountId ? ` accountId=${accountId}` : ''}`,
+    )
+  } catch (error) {
+    appendAuthLog('codex_oauth', `codex auth.json sync failed ${String(error)}`)
+  }
 }
 
 async function fetchGoogleEmail(accessToken: string, idToken?: string): Promise<string> {
@@ -991,6 +1040,7 @@ function AuthCommand({
               redirect_uri: CODEX_REDIRECT_URI, grant_type: 'authorization_code', code_verifier: verifier,
             }, 'codex_oauth')
             const email = emailFromTokens(tokens)
+            persistCodexOauthSession(tokens)
             addAccount({ type: 'codex_oauth', label: `Codex: ${email}`, email, refreshToken: tokens.refresh_token, enabled: true })
             process.env.OPENAI_API_KEY = 'chatgpt-oauth'
             appendAuthLog('codex_oauth', `account saved email=${email}`)

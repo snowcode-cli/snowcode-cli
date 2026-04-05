@@ -4,6 +4,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { getClaudeConfigHomeDir } from './envUtils.js'
 
@@ -11,14 +12,45 @@ declare const MACRO: { DISPLAY_VERSION?: string; VERSION: string }
 
 const PKG_NAME = 'snowcode'
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const require = createRequire(import.meta.url)
 
 export type UpdateCache = { latestVersion: string; checkedAt: number }
+
+function normalizeVersion(version: string): number[] {
+  return version
+    .replace(/[^0-9.]/g, '')
+    .split('.')
+    .filter(Boolean)
+    .map(part => Number(part) || 0)
+}
+
+export function compareVersions(a: string, b: string): number {
+  const av = normalizeVersion(a)
+  const bv = normalizeVersion(b)
+  const len = Math.max(av.length, bv.length, 3)
+  for (let i = 0; i < len; i++) {
+    const ai = av[i] ?? 0
+    const bi = bv[i] ?? 0
+    if (ai > bi) return 1
+    if (ai < bi) return -1
+  }
+  return 0
+}
 
 export function getCurrentVersion(): string {
   const displayVersion =
     (typeof MACRO !== 'undefined'
       ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION)
-      : undefined) ?? '0.0.0'
+      : undefined) ??
+    (() => {
+      try {
+        const pkg = require('../../package.json') as { version?: string }
+        return pkg.version
+      } catch {
+        return undefined
+      }
+    })() ??
+    '0.0.0'
   return displayVersion.replace(/[^0-9.]/g, '') || '0.0.0'
 }
 
@@ -68,15 +100,9 @@ async function fetchLatestVersion(timeoutMs: number): Promise<string | null> {
 /** Returns the latest version if there is a newer one, else null */
 export function getAvailableUpdate(cache: UpdateCache | null): string | null {
   if (!cache) return null
-  const cur = getCurrentVersion().split('.').map(Number)
-  const lat = cache.latestVersion.split('.').map(Number)
-  for (let i = 0; i < 3; i++) {
-    const c = cur[i] ?? 0
-    const l = lat[i] ?? 0
-    if (l > c) return cache.latestVersion
-    if (c > l) return null
-  }
-  return null
+  return compareVersions(cache.latestVersion, getCurrentVersion()) > 0
+    ? cache.latestVersion
+    : null
 }
 
 export async function refreshUpdateCache(options?: {
@@ -84,7 +110,12 @@ export async function refreshUpdateCache(options?: {
   timeoutMs?: number
 }): Promise<UpdateCache | null> {
   const cache = readUpdateCache()
-  if (!options?.force && isUpdateCacheFresh(cache)) {
+  const currentVersion = getCurrentVersion()
+  const canReuseFreshCache =
+    isUpdateCacheFresh(cache) &&
+    (!cache || compareVersions(cache.latestVersion, currentVersion) >= 0)
+
+  if (!options?.force && canReuseFreshCache) {
     return cache
   }
 

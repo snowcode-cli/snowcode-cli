@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import {
   coerceReasoningEffort,
   resolveCodexApiCredentialsForRequest,
+  resolveCodexAuthPath,
   resolveProviderRequest,
 } from './providerConfig.js'
 
@@ -70,9 +71,20 @@ test('max effort coerces down to high for third-party reasoning backends', () =>
   expect(coerceReasoningEffort('max')).toBe('high')
 })
 
+test('stores codex auth under the Snowcode config dir by default', () => {
+  const configDir = createTempDir('snowcode-cfg-')
+  process.env.SNOWCODE_CONFIG_DIR = configDir
+
+  expect(resolveCodexAuthPath({} as NodeJS.ProcessEnv)).toBe(
+    join(configDir, 'codex-auth.json'),
+  )
+})
+
 test('refreshes expired Codex auth.json tokens before returning request credentials', async () => {
   const authDir = createTempDir('snowcode-codex-auth-')
+  const configDir = createTempDir('snowcode-cfg-')
   const authPath = join(authDir, 'auth.json')
+  process.env.SNOWCODE_CONFIG_DIR = configDir
   const expiredToken = createJwt({
     exp: Math.floor(Date.now() / 1000) - 3600,
     'https://api.openai.com/auth.chatgpt_account_id': 'acct_old',
@@ -215,4 +227,92 @@ test('falls back to the newest enabled codex_oauth account when auth.json is mis
     persistedAccounts.accounts.find(account => account.id === 'latest')
       ?.refreshToken,
   ).toBe('refresh-rotated')
+})
+
+test('prefers the newest codex_oauth refresh token when auth.json refresh is stale', async () => {
+  const authDir = createTempDir('snowcode-codex-auth-')
+  const configDir = createTempDir('snowcode-cfg-')
+  const authPath = join(authDir, 'auth.json')
+  process.env.SNOWCODE_CONFIG_DIR = configDir
+  mkdirSync(configDir, { recursive: true })
+
+  writeFileSync(
+    authPath,
+    JSON.stringify({
+      tokens: {
+        access_token: createJwt({
+          exp: Math.floor(Date.now() / 1000) - 3600,
+          'https://api.openai.com/auth.chatgpt_account_id': 'acct_old',
+        }),
+        refresh_token: 'refresh-stale',
+        account_id: 'acct_old',
+      },
+    }),
+    'utf8',
+  )
+
+  writeFileSync(
+    join(configDir, 'accounts.json'),
+    JSON.stringify(
+      {
+        version: 1,
+        accounts: [
+          {
+            id: 'latest',
+            type: 'codex_oauth',
+            label: 'Codex latest',
+            enabled: true,
+            refreshToken: 'refresh-fresh',
+            email: 'latest@example.com',
+            addedAt: '2026-04-05T00:00:00.000Z',
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  )
+
+  const freshToken = createJwt({
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    'https://api.openai.com/auth.chatgpt_account_id': 'acct_fresh',
+  })
+
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = String(init?.body ?? '')
+    if (body.includes('refresh_token=refresh-fresh')) {
+      return new Response(
+        JSON.stringify({
+          access_token: freshToken,
+          refresh_token: 'refresh-rotated',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+
+    return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  const credentials = await resolveCodexApiCredentialsForRequest({
+    CODEX_AUTH_JSON_PATH: authPath,
+  } as NodeJS.ProcessEnv)
+
+  expect(credentials.apiKey).toBe(freshToken)
+  expect(credentials.accountId).toBe('acct_fresh')
+  expect(credentials.refreshToken).toBe('refresh-rotated')
+  expect(credentials.accountRecordId).toBe('latest')
+  expect(credentials.source).toBe('accounts')
+
+  const persistedAuth = JSON.parse(readFileSync(authPath, 'utf8')) as {
+    refresh_token?: string
+    account_id?: string
+    access_token?: string
+  }
+  expect(persistedAuth.refresh_token).toBe('refresh-rotated')
+  expect(persistedAuth.account_id).toBe('acct_fresh')
+  expect(persistedAuth.access_token).toBe(freshToken)
 })

@@ -1,9 +1,11 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
+  compareVersions,
   getAvailableUpdate,
+  getCurrentVersion,
   readUpdateCache,
   refreshUpdateCache,
 } from './updateCheck.js'
@@ -11,6 +13,9 @@ import {
 const tempDirs: string[] = []
 const originalFetch = globalThis.fetch
 const originalConfigDir = process.env.SNOWCODE_CONFIG_DIR
+const packageVersion = JSON.parse(
+  readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+) as { version: string }
 
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -79,4 +84,38 @@ test('refreshUpdateCache reuses a fresh cache without refetching', async () => {
   expect(second?.latestVersion).toBe('1.2.3')
   expect(fetchCalls).toBe(0)
   expect(readUpdateCache()?.latestVersion).toBe('1.2.3')
+})
+
+test('getCurrentVersion falls back to package.json version outside the bundled runtime', () => {
+  expect(compareVersions(getCurrentVersion(), packageVersion.version)).toBe(0)
+})
+
+test('refreshUpdateCache refetches when a fresh cache is behind the installed version', async () => {
+  const dir = createTempConfigDir()
+  const behindVersion =
+    compareVersions(packageVersion.version, '0.9.0') > 0 ? '0.9.0' : '0.0.1'
+
+  writeFileSync(
+    join(dir, 'update-check.json'),
+    JSON.stringify({
+      latestVersion: behindVersion,
+      checkedAt: Date.now(),
+    }),
+  )
+
+  let fetchCalls = 0
+  globalThis.fetch = (async () => {
+    fetchCalls += 1
+    return new Response(JSON.stringify({ version: packageVersion.version }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  const cache = await refreshUpdateCache()
+
+  expect(fetchCalls).toBe(1)
+  expect(cache?.latestVersion).toBe(packageVersion.version)
+  expect(getAvailableUpdate(cache)).toBeNull()
+  expect(readUpdateCache()?.latestVersion).toBe(packageVersion.version)
 })

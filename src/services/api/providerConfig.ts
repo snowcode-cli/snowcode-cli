@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { loadAccounts, updateAccount } from '../../utils/accountManager.js'
 import type { Account, AccountType } from '../../utils/accountManager.js'
 import { assertAntigravityOAuthConfig } from '../../utils/antigravityOAuth.js'
+import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import {
   type ModelProviderPrefix,
   getModelProviderPrefix,
@@ -95,6 +95,12 @@ type ModelDescriptor = {
   reasoning?: {
     effort: ReasoningEffort
   }
+}
+
+type CodexRefreshCandidate = {
+  refreshToken: string
+  source: 'auth.json' | 'accounts'
+  account?: Account
 }
 
 const LOCALHOST_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
@@ -590,10 +596,7 @@ export function resolveCodexAuthPath(
   const explicit = asTrimmedString(env.CODEX_AUTH_JSON_PATH)
   if (explicit) return explicit
 
-  const codexHome = asTrimmedString(env.CODEX_HOME)
-  if (codexHome) return join(codexHome, 'auth.json')
-
-  return join(homedir(), '.codex', 'auth.json')
+  return join(getClaudeConfigHomeDir(), 'codex-auth.json')
 }
 
 export function parseChatgptAccountId(
@@ -675,6 +678,34 @@ function getPreferredCodexOauthAccount(
       const rightAddedAt = Date.parse(right.addedAt || '')
       return rightAddedAt - leftAddedAt
     })[0]
+}
+
+function getCodexRefreshCandidates(options: {
+  authJsonRefreshToken?: string
+  preferredAccount?: Account
+}): CodexRefreshCandidate[] {
+  const candidates: CodexRefreshCandidate[] = []
+  const seen = new Set<string>()
+
+  const pushCandidate = (
+    refreshToken: string | undefined,
+    source: 'auth.json' | 'accounts',
+    account?: Account,
+  ) => {
+    const trimmed = asTrimmedString(refreshToken)
+    if (!trimmed || seen.has(trimmed)) return
+    seen.add(trimmed)
+    candidates.push({
+      refreshToken: trimmed,
+      source,
+      account,
+    })
+  }
+
+  pushCandidate(options.preferredAccount?.refreshToken, 'accounts', options.preferredAccount)
+  pushCandidate(options.authJsonRefreshToken, 'auth.json')
+
+  return candidates
 }
 
 function getJwtExpiryTimeMs(token: string | undefined): number | undefined {
@@ -877,17 +908,20 @@ export async function resolveCodexApiCredentialsForRequest(
   }
 
   const preferredAccount = getPreferredCodexOauthAccount(loadAccounts().accounts)
-  const refreshToken =
-    authJsonRefreshToken ?? asTrimmedString(preferredAccount?.refreshToken)
+  const refreshCandidates = getCodexRefreshCandidates({
+    authJsonRefreshToken,
+    preferredAccount,
+  })
 
-  if (refreshToken) {
-    const refreshed = await refreshCodexAccessToken(refreshToken)
+  for (const candidate of refreshCandidates) {
+    const refreshed = await refreshCodexAccessToken(candidate.refreshToken)
     if (refreshed?.accessToken) {
       const refreshedAccountId =
         envAccountId ??
         parseChatgptAccountId(refreshed.accessToken) ??
         authJsonAccountId
-      const rotatedRefreshToken = refreshed.refreshToken ?? refreshToken
+      const rotatedRefreshToken =
+        refreshed.refreshToken ?? candidate.refreshToken
 
       persistCodexAuthJson({
         authPath,
@@ -898,10 +932,10 @@ export async function resolveCodexApiCredentialsForRequest(
       })
 
       if (
-        preferredAccount?.id &&
-        rotatedRefreshToken !== preferredAccount.refreshToken
+        candidate.account?.id &&
+        rotatedRefreshToken !== candidate.account.refreshToken
       ) {
-        updateAccount(preferredAccount.id, {
+        updateAccount(candidate.account.id, {
           refreshToken: rotatedRefreshToken,
         })
       }
@@ -911,8 +945,8 @@ export async function resolveCodexApiCredentialsForRequest(
         accountId: refreshedAccountId,
         authPath,
         refreshToken: rotatedRefreshToken,
-        accountRecordId: preferredAccount?.id,
-        source: authJsonRefreshToken ? 'auth.json' : 'accounts',
+        accountRecordId: candidate.account?.id,
+        source: candidate.source,
       }
     }
   }
@@ -931,7 +965,8 @@ export async function resolveCodexApiCredentialsForRequest(
     apiKey: '',
     accountId: authJsonAccountId ?? envAccountId,
     authPath,
-    refreshToken,
+    refreshToken:
+      refreshCandidates[0]?.refreshToken ?? authJsonRefreshToken,
     accountRecordId: preferredAccount?.id,
     source: 'none',
   }
