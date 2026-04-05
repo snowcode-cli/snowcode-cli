@@ -73,7 +73,7 @@ describe('Codex provider config', () => {
   test('defaults antigravity models to the Cloud Code endpoint', () => {
     const resolved = resolveProviderRequest({ model: 'antigravity:claude-sonnet-4-6' })
     expect(resolved.transport).toBe('antigravity_generate_content')
-    expect(resolved.baseUrl).toBe('https://cloudcode-pa.googleapis.com')
+    expect(resolved.baseUrl).toBe('https://daily-cloudcode-pa.googleapis.com')
   })
 })
 

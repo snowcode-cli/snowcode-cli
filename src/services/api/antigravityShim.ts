@@ -94,7 +94,7 @@ export async function performAntigravityRequest({
   }
 
   const auth = await resolveAntigravityAuthForModel(request.requestedModel)
-  const resolvedProjectId = auth?.projectId ?? auth?.managedProjectId
+  const resolvedProjectId = auth?.managedProjectId ?? auth?.projectId
   if (!resolvedProjectId) {
     throw new Error(
       'Antigravity account is missing a resolved project ID. Re-run /auth with the Google account you want to use.',

@@ -75,6 +75,18 @@ function createTempAccountsConfig(payload: Record<string, unknown>): string {
   tempDirs.push(dir)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'accounts.json'), JSON.stringify(payload), 'utf8')
+  writeFileSync(
+    join(dir, 'settings.json'),
+    JSON.stringify(
+      {
+        antigravityClientId: 'test-antigravity-client-id',
+        antigravityClientSecret: 'test-antigravity-client-secret',
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  )
   return dir
 }
 

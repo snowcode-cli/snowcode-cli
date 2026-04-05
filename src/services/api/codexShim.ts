@@ -387,16 +387,40 @@ export function convertToolsToResponsesTools(
     .filter(tool => tool.name && tool.name !== 'ToolSearchTool')
     .map(tool => {
       const rawParameters = tool.input_schema ?? { type: 'object', properties: {} }
-      // Codex requires strict schemas: all properties must be required
-      const parameters = enforceStrictSchema(rawParameters)
+      const hasExplicitOptionalProperties =
+        rawParameters.type === 'object' &&
+        rawParameters.properties &&
+        typeof rawParameters.properties === 'object' &&
+        !Array.isArray(rawParameters.properties) &&
+        Array.isArray(rawParameters.required) &&
+        rawParameters.required.length > 0 &&
+        rawParameters.required.length <
+          Object.keys(rawParameters.properties as Record<string, unknown>).length
 
-      return {
+      const parameters = hasExplicitOptionalProperties
+        ? enforceStrictSchema({
+            ...rawParameters,
+            properties: rawParameters.properties,
+            required: rawParameters.required,
+          })
+        : enforceStrictSchema(rawParameters)
+
+      if (hasExplicitOptionalProperties && Array.isArray(rawParameters.required)) {
+        parameters.required = rawParameters.required
+      }
+
+      const responseTool: ResponsesTool = {
         type: 'function',
         name: tool.name ?? 'tool',
         description: tool.description ?? '',
         parameters,
-        strict: true,
       }
+
+      if (!hasExplicitOptionalProperties && isStrictResponsesSchema(parameters)) {
+        responseTool.strict = true
+      }
+
+      return responseTool
     })
 }
 

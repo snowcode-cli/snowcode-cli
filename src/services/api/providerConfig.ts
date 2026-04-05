@@ -361,7 +361,7 @@ async function resolveManagedProjectId(
 ): Promise<{ managedProjectId?: string; baseUrl?: string }> {
   const metadata: Record<string, string> = {
     ideType: 'ANTIGRAVITY',
-    platform: 'PLATFORM_UNSPECIFIED',
+    platform: 'WINDOWS',
     pluginType: 'GEMINI',
   }
   if (projectId) {
@@ -378,7 +378,7 @@ async function resolveManagedProjectId(
           Authorization: `Bearer ${accessToken}`,
           'User-Agent': 'google-api-nodejs-client/9.15.1',
           'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
-          'Client-Metadata': `{"ideType":"ANTIGRAVITY","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}`,
+          'Client-Metadata': `{"ideType":"ANTIGRAVITY","platform":"WINDOWS","pluginType":"GEMINI"}`,
         },
         body: JSON.stringify({ metadata }),
       },
@@ -417,7 +417,7 @@ async function resolveManagedProjectId(
           Authorization: `Bearer ${accessToken}`,
           'User-Agent': 'google-api-nodejs-client/9.15.1',
           'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
-          'Client-Metadata': `{"ideType":"ANTIGRAVITY","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}`,
+          'Client-Metadata': `{"ideType":"ANTIGRAVITY","platform":"WINDOWS","pluginType":"GEMINI"}`,
         },
         body: JSON.stringify({ tierId, metadata }),
       },
