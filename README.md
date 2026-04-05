@@ -1,4 +1,5 @@
 # Snowcode
+<img width="1123" height="583" alt="image" src="https://github.com/user-attachments/assets/87285bf6-662e-4f0b-bd91-9b0d192c0f08" />
 
 Snowcode is a multi-provider coding CLI focused on real coding workflows, provider switching, and config-first setup.
 
