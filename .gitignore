@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.cpuprofile
+.env
+.env.*
+.snowcode-profile.json
+reports/
+undefined/
