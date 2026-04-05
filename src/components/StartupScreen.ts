@@ -4,10 +4,8 @@
  */
 
 import {
-  checkForUpdateInBackground,
-  getAvailableUpdate,
+  getAvailableUpdateWithRefresh,
   getCurrentVersion,
-  readUpdateCache,
 } from '../utils/updateCheck.js'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 
@@ -182,7 +180,7 @@ function boxRow(content: string, width: number, rawLen: number): string {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export function printStartupScreen(): void {
+export async function printStartupScreen(): Promise<void> {
   // Skip in non-interactive / CI / print mode
   if (process.env.CI || !process.stdout.isTTY) return
 
@@ -232,8 +230,7 @@ export function printStartupScreen(): void {
 
   out.push(`${rgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
   const _ver = MACRO.DISPLAY_VERSION ?? MACRO.VERSION ?? getCurrentVersion()
-  checkForUpdateInBackground()
-  const _update = getAvailableUpdate(readUpdateCache())
+  const _update = await getAvailableUpdateWithRefresh({ timeoutMs: 1200 })
   out.push(`  ${DIM}${rgb(...DIMCOL)}snowcode v${_ver}${RESET}`)
   if (_update) {
     out.push(`  ${rgb(...ACCENT)}★ Update available v${_update}  →  /update${RESET}`)

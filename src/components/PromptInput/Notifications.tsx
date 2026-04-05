@@ -14,8 +14,10 @@ import { useVoiceEnabled } from '../../hooks/useVoiceEnabled.js';
 import { Box, Text } from '../../ink.js';
 import { useClaudeAiLimits } from '../../services/claudeAiLimitsHook.js';
 import { calculateTokenWarningState } from '../../services/compact/autoCompact.js';
+import { resolveCodexApiCredentials } from '../../services/api/providerConfig.js';
 import type { MCPServerConnection } from '../../services/mcp/types.js';
 import type { Message } from '../../types/message.js';
+import { getEnabledAccounts } from '../../utils/accountManager.js';
 import { getApiKeyHelperElapsedMs, getConfiguredApiKeyHelper, getSubscriptionType } from '../../utils/auth.js';
 import type { AutoUpdaterResult } from '../../utils/autoUpdater.js';
 import { getExternalEditor } from '../../utils/editor.js';
@@ -38,6 +40,19 @@ const VoiceIndicator: typeof import('./VoiceIndicator.js').VoiceIndicator = feat
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 export const FOOTER_TEMPORARY_STATUS_TIMEOUT = 5000;
+
+function hasAnyConfiguredThirdPartyAuth(): boolean {
+  return (
+    resolveCodexApiCredentials().source !== 'none' ||
+    Boolean(process.env.CODEX_API_KEY) ||
+    Boolean(process.env.OPENAI_API_KEY) ||
+    Boolean(process.env.GEMINI_API_KEY) ||
+    Boolean(process.env.GOOGLE_API_KEY) ||
+    Boolean(process.env.VERTEX_API_KEY) ||
+    Boolean(process.env.ZAI_API_KEY)
+  );
+}
+
 type Props = {
   apiKeyStatus: VerificationStatus;
   autoUpdaterResult: AutoUpdaterResult | null;
@@ -95,6 +110,7 @@ export function Notifications(t0) {
     status: ideStatus
   } = useIdeConnectionStatus(mcpClients);
   const notifications = useAppState(_temp);
+  const authVersion = useAppState(s => s.authVersion);
   const {
     addNotification,
     removeNotification
@@ -136,6 +152,7 @@ export function Notifications(t0) {
   }
   const subscriptionType = t7;
   const isTeamOrEnterprise = subscriptionType === "team" || subscriptionType === "enterprise";
+  const hasAnyLoggedInProvider = useMemo(() => getSubscriptionType() !== null || getEnabledAccounts().length > 0 || hasAnyConfiguredThirdPartyAuth(), [authVersion]);
   let t8;
   if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
     t8 = getExternalEditor();
@@ -252,7 +269,7 @@ function NotificationContent({
   onChangeIsUpdating: (isUpdating: boolean) => void;
 }): ReactNode {
   // Poll apiKeyHelper inflight state to show slow-helper notice.
-  // Gated on configuration — most users never set apiKeyHelper, so the
+  // Gated on configuration - most users never set apiKeyHelper, so the
   // effect is a no-op for them (no interval allocated).
   const [apiKeyHelperSlow, setApiKeyHelperSlow] = useState<string | null>(null);
   useEffect(() => {
@@ -264,6 +281,9 @@ function NotificationContent({
     }, 1000, setApiKeyHelperSlow);
     return () => clearInterval(interval);
   }, []);
+
+  const authVersion_0 = useAppState(s_2 => s_2.authVersion);
+  const hasAnyLoggedInProvider = useMemo(() => getSubscriptionType() !== null || getEnabledAccounts().length > 0 || hasAnyConfiguredThirdPartyAuth(), [authVersion_0]);
 
   // Voice state (VOICE_MODE builds only, runtime-gated by GrowthBook)
   const voiceState = feature('VOICE_MODE') ?
@@ -303,9 +323,9 @@ function NotificationContent({
             ({apiKeyHelperSlow})
           </Text>
         </Box>}
-      {(apiKeyStatus === 'invalid' || apiKeyStatus === 'missing') && <Box>
+      {(apiKeyStatus === 'invalid' || apiKeyStatus === 'missing') && (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || !hasAnyLoggedInProvider) && <Box>
           <Text color="error" wrap="truncate">
-            {isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ? 'Authentication error · Try again' : 'Not logged in · Run /login'}
+            {isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ? 'Authentication error - Try again' : 'Not logged in - Run /auth'}
           </Text>
         </Box>}
       {debug && <Box>

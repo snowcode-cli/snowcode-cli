@@ -27,9 +27,6 @@ type OAuthStatus = {
   state: 'idle';
 } // Initial state, waiting to select login method
 | {
-  state: 'platform_setup';
-} // Show platform setup info (Bedrock/Vertex/Foundry)
-| {
   state: 'ready_to_start';
 } // Flow started, waiting for browser to open
 | {
@@ -117,16 +114,6 @@ export function ConsoleOAuthFlow({
   }, {
     context: 'Confirmation',
     isActive: oauthStatus.state === 'success' && mode !== 'setup-token'
-  });
-
-  // Handle Enter to continue from platform setup
-  useKeybinding('confirm:yes', () => {
-    setOAuthStatus({
-      state: 'idle'
-    });
-  }, {
-    context: 'Confirmation',
-    isActive: oauthStatus.state === 'platform_setup'
   });
 
   // Handle Enter to retry on error state
@@ -309,7 +296,7 @@ export function ConsoleOAuthFlow({
         </Box>}
       {mode === 'setup-token' && oauthStatus.state === 'success' && oauthStatus.token && <Box key="tokenOutput" flexDirection="column" gap={1} paddingTop={1}>
             <Text color="success">
-              ✓ Long-lived authentication token created successfully!
+              Long-lived authentication token created successfully!
             </Text>
             <Box flexDirection="column" gap={1}>
               <Text>Your OAuth token (valid for 1 year):</Text>
@@ -402,10 +389,7 @@ function OAuthStatusMessage(t0) {
         }
         let t6;
         if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-          t6 = [t4, t5, {
-            label: <Text>3rd-party platform ·{" "}<Text dimColor={true}>OpenAI, Gemini, Bedrock, Ollama, and more</Text>{"\n"}</Text>,
-            value: "platform"
-          }];
+          t6 = [t4, t5];
           $[5] = t6;
         } else {
           t6 = $[5];
@@ -413,22 +397,15 @@ function OAuthStatusMessage(t0) {
         let t7;
         if ($[6] !== setLoginWithClaudeAi || $[7] !== setOAuthStatus) {
           t7 = <Box><Select options={t6} onChange={value_0 => {
-              if (value_0 === "platform") {
-                logEvent("tengu_oauth_platform_selected", {});
-                setOAuthStatus({
-                  state: "platform_setup"
-                });
+              setOAuthStatus({
+                state: "ready_to_start"
+              });
+              if (value_0 === "claudeai") {
+                logEvent("tengu_oauth_claudeai_selected", {});
+                setLoginWithClaudeAi(true);
               } else {
-                setOAuthStatus({
-                  state: "ready_to_start"
-                });
-                if (value_0 === "claudeai") {
-                  logEvent("tengu_oauth_claudeai_selected", {});
-                  setLoginWithClaudeAi(true);
-                } else {
-                  logEvent("tengu_oauth_console_selected", {});
-                  setLoginWithClaudeAi(false);
-                }
+                logEvent("tengu_oauth_console_selected", {});
+                setLoginWithClaudeAi(false);
               }
             }} /></Box>;
           $[6] = setLoginWithClaudeAi;
@@ -448,66 +425,6 @@ function OAuthStatusMessage(t0) {
         }
         return t8;
       }
-    case "platform_setup":
-      {
-        let t1;
-        if ($[12] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <Text bold={true}>Using 3rd-party platforms</Text>;
-          $[12] = t1;
-        } else {
-          t1 = $[12];
-        }
-        let t2;
-        let t3;
-        if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
-          t2 = <Text>SnowCode supports OpenAI-compatible providers (GPT-4o, DeepSeek, Ollama, Groq), Google Gemini, Amazon Bedrock, Microsoft Foundry, and Vertex AI. Set the required environment variables, then restart SnowCode.</Text>;
-          t3 = <Text>If you are part of an enterprise organization, contact your administrator for setup instructions.</Text>;
-          $[13] = t2;
-          $[14] = t3;
-        } else {
-          t2 = $[13];
-          t3 = $[14];
-        }
-        let t4;
-        if ($[15] === Symbol.for("react.memo_cache_sentinel")) {
-          t4 = <Text bold={true}>Documentation:</Text>;
-          $[15] = t4;
-        } else {
-          t4 = $[15];
-        }
-        let t5;
-        if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
-          t5 = <Text>· Amazon Bedrock:{" "}<Link url="https://code.claude.com/docs/en/amazon-bedrock">https://code.claude.com/docs/en/amazon-bedrock</Link></Text>;
-          $[16] = t5;
-        } else {
-          t5 = $[16];
-        }
-        let t6;
-        if ($[17] === Symbol.for("react.memo_cache_sentinel")) {
-          t6 = <Text>· Microsoft Foundry:{" "}<Link url="https://code.claude.com/docs/en/microsoft-foundry">https://code.claude.com/docs/en/microsoft-foundry</Link></Text>;
-          $[17] = t6;
-        } else {
-          t6 = $[17];
-        }
-        let t7;
-        if ($[18] === Symbol.for("react.memo_cache_sentinel")) {
-          t7 = <Box flexDirection="column" marginTop={1}>{t4}
-            <Text>· OpenAI / any OpenAI-compatible provider (GPT-4o, DeepSeek, Ollama, Groq):{"\n"}{"  "}CLAUDE_CODE_USE_OPENAI=1  OPENAI_API_KEY=sk-...  OPENAI_MODEL=gpt-4o</Text>
-            <Text>· Google Gemini (free key at https://aistudio.google.com/apikey):{"\n"}{"  "}CLAUDE_CODE_USE_GEMINI=1  GEMINI_API_KEY=your-key</Text>
-            {t5}{t6}<Text>· Vertex AI:{" "}<Link url="https://code.claude.com/docs/en/google-vertex-ai">https://code.claude.com/docs/en/google-vertex-ai</Link></Text></Box>;
-          $[18] = t7;
-        } else {
-          t7 = $[18];
-        }
-        let t8;
-        if ($[19] === Symbol.for("react.memo_cache_sentinel")) {
-          t8 = <Box flexDirection="column" gap={1} marginTop={1}>{t1}<Box flexDirection="column" gap={1}>{t2}{t3}{t7}<Box marginTop={1}><Text dimColor={true}>Press <Text bold={true}>Enter</Text> to go back to login options.</Text></Box></Box></Box>;
-          $[19] = t8;
-        } else {
-          t8 = $[19];
-        }
-        return t8;
-      }
     case "waiting_for_login":
       {
         let t1;
@@ -520,7 +437,7 @@ function OAuthStatusMessage(t0) {
         }
         let t2;
         if ($[22] !== showPastePrompt) {
-          t2 = !showPastePrompt && <Box><Spinner /><Text>Opening browser to sign in…</Text></Box>;
+          t2 = !showPastePrompt && <Box><Spinner /><Text>Opening browser to sign in...</Text></Box>;
           $[22] = showPastePrompt;
           $[23] = t2;
         } else {
@@ -557,7 +474,7 @@ function OAuthStatusMessage(t0) {
       {
         let t1;
         if ($[37] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <Box flexDirection="column" gap={1}><Box><Spinner /><Text>Creating API key for Claude Code…</Text></Box></Box>;
+          t1 = <Box flexDirection="column" gap={1}><Box><Spinner /><Text>Creating API key for Claude Code...</Text></Box></Box>;
           $[37] = t1;
         } else {
           t1 = $[37];
@@ -568,7 +485,7 @@ function OAuthStatusMessage(t0) {
       {
         let t1;
         if ($[38] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <Box flexDirection="column" gap={1}><Text color="permission">Retrying…</Text></Box>;
+          t1 = <Box flexDirection="column" gap={1}><Text color="permission">Retrying...</Text></Box>;
           $[38] = t1;
         } else {
           t1 = $[38];
@@ -579,7 +496,7 @@ function OAuthStatusMessage(t0) {
       {
         let t1;
         if ($[39] !== mode || $[40] !== oauthStatus.token) {
-          t1 = mode === "setup-token" && oauthStatus.token ? null : <>{getOauthAccountInfo()?.emailAddress ? <Text dimColor={true}>Logged in as{" "}<Text>{getOauthAccountInfo()?.emailAddress}</Text></Text> : null}<Text color="success">Login successful. Press <Text bold={true}>Enter</Text> to continue…</Text></>;
+          t1 = mode === "setup-token" && oauthStatus.token ? null : <>{getOauthAccountInfo()?.emailAddress ? <Text dimColor={true}>Logged in as{" "}<Text>{getOauthAccountInfo()?.emailAddress}</Text></Text> : null}<Text color="success">Login successful. Press <Text bold={true}>Enter</Text> to continue...</Text></>;
           $[39] = mode;
           $[40] = oauthStatus.token;
           $[41] = t1;

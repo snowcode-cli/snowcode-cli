@@ -12,10 +12,14 @@ declare const MACRO: { DISPLAY_VERSION?: string; VERSION: string }
 const PKG_NAME = 'snowcode'
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
-type UpdateCache = { latestVersion: string; checkedAt: number }
+export type UpdateCache = { latestVersion: string; checkedAt: number }
 
 export function getCurrentVersion(): string {
-  return (MACRO.DISPLAY_VERSION ?? MACRO.VERSION ?? '0.0.0').replace(/[^0-9.]/g, '') || '0.0.0'
+  const displayVersion =
+    (typeof MACRO !== 'undefined'
+      ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION)
+      : undefined) ?? '0.0.0'
+  return displayVersion.replace(/[^0-9.]/g, '') || '0.0.0'
 }
 
 function cachePath(): string {
@@ -40,6 +44,27 @@ function writeUpdateCache(cache: UpdateCache): void {
   } catch {}
 }
 
+export function isUpdateCacheFresh(
+  cache: UpdateCache | null,
+  now: number = Date.now(),
+): boolean {
+  return Boolean(cache && now - cache.checkedAt < CHECK_INTERVAL_MS)
+}
+
+async function fetchLatestVersion(timeoutMs: number): Promise<string | null> {
+  try {
+    const res = await fetch(`https://registry.npmjs.org/${PKG_NAME}/latest`, {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { Accept: 'application/json' },
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { version?: string }
+    return typeof data.version === 'string' ? data.version : null
+  } catch {
+    return null
+  }
+}
+
 /** Returns the latest version if there is a newer one, else null */
 export function getAvailableUpdate(cache: UpdateCache | null): string | null {
   if (!cache) return null
@@ -54,24 +79,37 @@ export function getAvailableUpdate(cache: UpdateCache | null): string | null {
   return null
 }
 
+export async function refreshUpdateCache(options?: {
+  force?: boolean
+  timeoutMs?: number
+}): Promise<UpdateCache | null> {
+  const cache = readUpdateCache()
+  if (!options?.force && isUpdateCacheFresh(cache)) {
+    return cache
+  }
+
+  const latestVersion = await fetchLatestVersion(options?.timeoutMs ?? 5000)
+  if (!latestVersion) {
+    return cache
+  }
+
+  const nextCache = {
+    latestVersion,
+    checkedAt: Date.now(),
+  }
+  writeUpdateCache(nextCache)
+  return nextCache
+}
+
+export async function getAvailableUpdateWithRefresh(options?: {
+  force?: boolean
+  timeoutMs?: number
+}): Promise<string | null> {
+  const cache = await refreshUpdateCache(options)
+  return getAvailableUpdate(cache)
+}
+
 /** Fire-and-forget: fetch npm registry in background, update cache */
 export function checkForUpdateInBackground(): void {
-  const cache = readUpdateCache()
-  const now = Date.now()
-  if (cache && now - cache.checkedAt < CHECK_INTERVAL_MS) return
-
-  // Deliberately not awaited — runs in background
-  void (async () => {
-    try {
-      const res = await fetch(`https://registry.npmjs.org/${PKG_NAME}/latest`, {
-        signal: AbortSignal.timeout(5000),
-        headers: { Accept: 'application/json' },
-      })
-      if (!res.ok) return
-      const data = (await res.json()) as { version: string }
-      if (typeof data.version === 'string') {
-        writeUpdateCache({ latestVersion: data.version, checkedAt: Date.now() })
-      }
-    } catch {}
-  })()
+  void refreshUpdateCache()
 }
