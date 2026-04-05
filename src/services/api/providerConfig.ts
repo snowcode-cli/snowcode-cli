@@ -608,6 +608,13 @@ export function parseChatgptAccountId(
     payload?.['https://api.openai.com/auth.chatgpt_account_id'],
   )
   if (fromClaim) return fromClaim
+  const nestedAuth =
+    payload?.['https://api.openai.com/auth'] &&
+    typeof payload['https://api.openai.com/auth'] === 'object'
+      ? (payload['https://api.openai.com/auth'] as Record<string, unknown>)
+      : undefined
+  const nestedClaim = asTrimmedString(nestedAuth?.chatgpt_account_id)
+  if (nestedClaim) return nestedClaim
   return asTrimmedString(payload?.chatgpt_account_id)
 }
 

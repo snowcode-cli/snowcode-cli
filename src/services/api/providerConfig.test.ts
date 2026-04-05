@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 
 import {
   coerceReasoningEffort,
+  parseChatgptAccountId,
   resolveCodexApiCredentialsForRequest,
   resolveCodexAuthPath,
   resolveProviderRequest,
@@ -78,6 +79,16 @@ test('stores codex auth under the Snowcode config dir by default', () => {
   expect(resolveCodexAuthPath({} as NodeJS.ProcessEnv)).toBe(
     join(configDir, 'codex-auth.json'),
   )
+})
+
+test('parses chatgpt account id from nested OpenAI auth JWT claims', () => {
+  const token = createJwt({
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'acct_nested',
+    },
+  })
+
+  expect(parseChatgptAccountId(token)).toBe('acct_nested')
 })
 
 test('refreshes expired Codex auth.json tokens before returning request credentials', async () => {

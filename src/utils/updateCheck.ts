@@ -43,12 +43,17 @@ export function getCurrentVersion(): string {
       ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION)
       : undefined) ??
     (() => {
-      try {
-        const pkg = require('../../package.json') as { version?: string }
-        return pkg.version
-      } catch {
-        return undefined
+      for (const candidate of ['../../package.json', '../package.json']) {
+        try {
+          const pkg = require(candidate) as { version?: string }
+          if (typeof pkg.version === 'string') {
+            return pkg.version
+          }
+        } catch {
+          continue
+        }
       }
+      return undefined
     })() ??
     '0.0.0'
   return displayVersion.replace(/[^0-9.]/g, '') || '0.0.0'
