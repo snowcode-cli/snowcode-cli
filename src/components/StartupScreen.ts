@@ -4,6 +4,7 @@
  */
 
 import {
+  compareVersions,
   getAvailableUpdateWithRefresh,
   getCurrentVersion,
 } from '../utils/updateCheck.js'
@@ -230,9 +231,10 @@ export async function printStartupScreen(): Promise<void> {
 
   out.push(`${rgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
   const _ver = MACRO.DISPLAY_VERSION ?? MACRO.VERSION ?? getCurrentVersion()
+  const _currentVersion = getCurrentVersion()
   const _update = await getAvailableUpdateWithRefresh({ timeoutMs: 1200 })
   out.push(`  ${DIM}${rgb(...DIMCOL)}snowcode v${_ver}${RESET}`)
-  if (_update) {
+  if (_update && compareVersions(_update, _currentVersion) > 0) {
     out.push(`  ${rgb(...ACCENT)}★ Update available v${_update}  →  /update${RESET}`)
   }
   out.push('')
