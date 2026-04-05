@@ -2263,8 +2263,11 @@ async function run(): Promise<CommanderCommand> {
         agentDef.pendingSnapshotUpdate = undefined;
       }
 
-      // Skip executing /login if we just completed onboarding for it
-      if (onboardingShown && prompt?.trim().toLowerCase() === '/login') {
+      // Skip executing /auth if we just completed onboarding for it
+      if (
+        onboardingShown &&
+        ['/auth', '/login'].includes(prompt?.trim().toLowerCase() ?? '')
+      ) {
         prompt = '';
       }
       if (onboardingShown) {

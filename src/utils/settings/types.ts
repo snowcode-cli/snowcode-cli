@@ -400,6 +400,31 @@ export const SettingsSchema = lazySchema(() =>
           'Cap the effective context window used by auto-compact calculations. ' +
             'Use this to compact earlier on long-context models, for example 120000 to keep the working set around 120k tokens.',
         ),
+      autoCompactMilestones: z
+        .union([z.array(z.number().int().positive()), z.string()])
+        .optional()
+        .describe(
+          'Optional token milestones that trigger earlier auto-compact. ' +
+            'Accepts either an array such as [80000, 100000, 120000] or a comma-separated string.',
+        ),
+      compactMinGainTokens: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          'Minimum token gain required before a low-value compact is allowed again. ' +
+            'Useful together with autoCompactMilestones to avoid overly frequent compaction loops.',
+        ),
+      compactCooldownMinutes: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          'Minimum cooldown between automatic compactions, in minutes. ' +
+            'Use 0 to disable cooldown.',
+        ),
       // Enterprise allowlist of models
       availableModels: z
         .array(z.string())

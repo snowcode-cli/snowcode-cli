@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle'
+import { resolveConfiguredAutoCompactMilestones } from '../../services/compact/config.js'
 import { getRemoteControlAtStartup } from '../../utils/config.js'
 import {
   EDITOR_MODES,
@@ -143,6 +144,56 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
         : {
             valid: false,
             error: 'autoCompactWindowTokens requires a positive integer.',
+          }
+    },
+  },
+  autoCompactMilestones: {
+    source: 'settings',
+    type: 'string',
+    description:
+      'Comma-separated token milestones for earlier auto-compact (for example 80000,100000,120000)',
+    validateOnWrite: async v => {
+      const parsed = resolveConfiguredAutoCompactMilestones({
+        settingsAutoCompactMilestones: v,
+      })
+      return parsed && parsed.length > 0
+        ? { valid: true }
+        : {
+            valid: false,
+            error:
+              'autoCompactMilestones requires a comma-separated list of positive integers.',
+          }
+    },
+    formatOnRead: v => (Array.isArray(v) ? v.join(',') : v),
+  },
+  compactMinGainTokens: {
+    source: 'settings',
+    type: 'number',
+    description:
+      'Minimum token gain required before a low-value compact is allowed again',
+    validateOnWrite: async v => {
+      const parsed =
+        typeof v === 'number' ? v : Number.parseInt(String(v).trim(), 10)
+      return Number.isInteger(parsed) && parsed >= 0
+        ? { valid: true }
+        : {
+            valid: false,
+            error: 'compactMinGainTokens requires a non-negative integer.',
+          }
+    },
+  },
+  compactCooldownMinutes: {
+    source: 'settings',
+    type: 'number',
+    description: 'Minimum cooldown between automatic compactions, in minutes',
+    validateOnWrite: async v => {
+      const parsed =
+        typeof v === 'number' ? v : Number.parseInt(String(v).trim(), 10)
+      return Number.isInteger(parsed) && parsed >= 0
+        ? { valid: true }
+        : {
+            valid: false,
+            error: 'compactCooldownMinutes requires a non-negative integer.',
           }
     },
   },

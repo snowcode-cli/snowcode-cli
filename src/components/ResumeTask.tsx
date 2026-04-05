@@ -229,7 +229,7 @@ function determineErrorType(errorMessage: string): LoadErrorType {
   if (message.includes('fetch') || message.includes('network') || message.includes('timeout')) {
     return 'network';
   }
-  if (message.includes('auth') || message.includes('token') || message.includes('permission') || message.includes('oauth') || message.includes('not authenticated') || message.includes('/login') || message.includes('console account') || message.includes('403')) {
+  if (message.includes('auth') || message.includes('token') || message.includes('permission') || message.includes('oauth') || message.includes('not authenticated') || message.includes('/login') || message.includes('/auth') || message.includes('console account') || message.includes('403')) {
     return 'auth';
   }
   if (message.includes('api') || message.includes('rate limit') || message.includes('500') || message.includes('529')) {
@@ -251,7 +251,7 @@ function renderErrorSpecificGuidance(errorType: LoadErrorType): React.ReactNode 
       return <Box marginY={1} flexDirection="column">
           <Text dimColor>Teleport requires a Claude account</Text>
           <Text dimColor>
-            Run <Text bold>/login</Text> and select &quot;Claude account with
+            Run <Text bold>/auth</Text> and select &quot;Claude account with
             subscription&quot;
           </Text>
         </Box>;

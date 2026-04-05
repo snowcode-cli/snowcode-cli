@@ -300,10 +300,30 @@ export function getRelativeSettingsFilePathForSource(
 ): string {
   switch (source) {
     case 'projectSettings':
+      return join('.snowcode', 'settings.json')
+    case 'localSettings':
+      return join('.snowcode', 'settings.local.json')
+  }
+}
+
+function getLegacyRelativeSettingsFilePathForSource(
+  source: 'projectSettings' | 'localSettings',
+): string {
+  switch (source) {
+    case 'projectSettings':
       return join('.claude', 'settings.json')
     case 'localSettings':
       return join('.claude', 'settings.local.json')
   }
+}
+
+function getLegacySettingsFilePathForSource(
+  source: 'projectSettings' | 'localSettings',
+): string {
+  return join(
+    getSettingsRootPathForSource(source),
+    getLegacyRelativeSettingsFilePathForSource(source),
+  )
 }
 
 export function getSettingsForSource(
@@ -345,9 +365,18 @@ function getSettingsForSourceUncached(
   }
 
   const settingsFilePath = getSettingsFilePathForSource(source)
-  const { settings: fileSettings } = settingsFilePath
-    ? parseSettingsFile(settingsFilePath)
-    : { settings: null }
+  let fileSettings: SettingsJson | null = null
+  if (settingsFilePath) {
+    fileSettings = parseSettingsFile(settingsFilePath).settings
+    if (
+      !fileSettings &&
+      (source === 'projectSettings' || source === 'localSettings')
+    ) {
+      fileSettings = parseSettingsFile(
+        getLegacySettingsFilePathForSource(source),
+      ).settings
+    }
+  }
 
   // For flagSettings, merge in any inline settings set via the SDK
   if (source === 'flagSettings') {
@@ -438,6 +467,10 @@ export function updateSettingsForSource(
     // and mutating the cached object would leak unpersisted state if the
     // write fails before resetSettingsCache().
     let existingSettings = getSettingsForSourceUncached(source)
+    const legacyFilePath =
+      source === 'projectSettings' || source === 'localSettings'
+        ? getLegacySettingsFilePathForSource(source)
+        : null
 
     // If validation failed, check if file exists with a JSON syntax error
     if (!existingSettings) {
@@ -447,6 +480,15 @@ export function updateSettingsForSource(
       } catch (e) {
         if (!isENOENT(e)) {
           throw e
+        }
+        if (legacyFilePath) {
+          try {
+            content = readFileSync(legacyFilePath)
+          } catch (legacyError) {
+            if (!isENOENT(legacyError)) {
+              throw legacyError
+            }
+          }
         }
         // File doesn't exist — fall through to merge with empty settings
       }

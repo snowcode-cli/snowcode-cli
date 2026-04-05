@@ -27,7 +27,6 @@ import initVerifiers from './commands/init-verifiers.js'
 import keybindings from './commands/keybindings/index.js'
 import authCommand from './commands/auth/index.js'
 import updateCommand from './commands/update/index.js'
-import login from './commands/login/index.js'
 import logout from './commands/logout/index.js'
 import installGitHubApp from './commands/install-github-app/index.js'
 import installSlackApp from './commands/install-slack-app/index.js'
@@ -339,7 +338,7 @@ const COMMANDS = memoize((): Command[] => [
   sandboxToggle,
   authCommand(),
   updateCommand,
-  ...(!isUsing3PServices() ? [logout, login()] : []),
+  ...(!isUsing3PServices() ? [logout] : []),
   passes,
   ...(peersCmd ? [peersCmd] : []),
   tasks,

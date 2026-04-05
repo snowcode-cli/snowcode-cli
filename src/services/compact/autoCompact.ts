@@ -22,9 +22,19 @@ import {
   ERROR_MESSAGE_USER_ABORT,
   type RecompactionInfo,
 } from './compact.js'
-import { getConfiguredAutoCompactWindowTokens } from './config.js'
+import {
+  getConfiguredAutoCompactMilestones,
+  getConfiguredAutoCompactWindowTokens,
+  getConfiguredCompactCooldownMinutes,
+  getConfiguredCompactMinGainTokens,
+} from './config.js'
 import { runPostCompactCleanup } from './postCompactCleanup.js'
 import { trySessionMemoryCompaction } from './sessionMemoryCompact.js'
+import {
+  getCompactScopeState,
+  recordCompactScopeState,
+  type CompactScopeState,
+} from './state.js'
 
 // Reserve this many tokens for output during compaction
 // Based on p99.99 of compact summary output being 17,387 tokens.
@@ -61,6 +71,8 @@ export const AUTOCOMPACT_BUFFER_TOKENS = 13_000
 export const WARNING_THRESHOLD_BUFFER_TOKENS = 20_000
 export const ERROR_THRESHOLD_BUFFER_TOKENS = 20_000
 export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000
+const DEFAULT_MILESTONE_COMPACT_MIN_GAIN_TOKENS = 12_000
+const DEFAULT_MILESTONE_COMPACT_COOLDOWN_MINUTES = 10
 
 // Stop trying autocompact after this many consecutive failures.
 // BQ 2026-03-10: 1,279 sessions had 50+ consecutive failures (up to 3,272)
@@ -86,6 +98,99 @@ export function getAutoCompactThreshold(model: string): number {
   }
 
   return autocompactThreshold
+}
+
+export type AutoCompactPolicyDecision = {
+  shouldCompact: boolean
+  reason:
+    | 'below-threshold'
+    | 'threshold'
+    | 'milestone'
+    | 'cooldown'
+    | 'min-gain'
+  milestoneReached: boolean
+  matchedMilestone: number | null
+  thresholdReached: boolean
+  cooldownMinutes: number
+  minGainTokens: number
+}
+
+export function getAutoCompactPolicyDecision(input: {
+  tokenUsage: number
+  autoCompactThreshold: number
+  milestones?: number[]
+  cooldownMinutes?: number
+  minGainTokens?: number
+  state?: CompactScopeState
+  nowMs?: number
+}): AutoCompactPolicyDecision {
+  const milestones = (input.milestones ?? []).filter(m => m > 0)
+  const matchedMilestone =
+    milestones.findLast(milestone => input.tokenUsage >= milestone) ?? null
+  const milestoneReached = matchedMilestone !== null
+  const thresholdReached = input.tokenUsage >= input.autoCompactThreshold
+  const cooldownMinutes = Math.max(0, input.cooldownMinutes ?? 0)
+  const minGainTokens = Math.max(0, input.minGainTokens ?? 0)
+
+  if (!thresholdReached && !milestoneReached) {
+    return {
+      shouldCompact: false,
+      reason: 'below-threshold',
+      milestoneReached,
+      matchedMilestone,
+      thresholdReached,
+      cooldownMinutes,
+      minGainTokens,
+    }
+  }
+
+  const nowMs = input.nowMs ?? Date.now()
+  const lastCompactAtMs = input.state?.lastCompactAt
+    ? Date.parse(input.state.lastCompactAt)
+    : NaN
+  if (
+    cooldownMinutes > 0 &&
+    Number.isFinite(lastCompactAtMs) &&
+    nowMs - lastCompactAtMs < cooldownMinutes * 60_000
+  ) {
+    return {
+      shouldCompact: false,
+      reason: 'cooldown',
+      milestoneReached,
+      matchedMilestone,
+      thresholdReached,
+      cooldownMinutes,
+      minGainTokens,
+    }
+  }
+
+  if (
+    minGainTokens > 0 &&
+    input.state?.lastCompactSavedTokens !== undefined &&
+    input.state.lastCompactSavedTokens < minGainTokens &&
+    input.state.lastCompactInputTokens !== undefined &&
+    input.tokenUsage < input.state.lastCompactInputTokens + minGainTokens
+  ) {
+    return {
+      shouldCompact: false,
+      reason: 'min-gain',
+      milestoneReached,
+      matchedMilestone,
+      thresholdReached,
+      cooldownMinutes,
+      minGainTokens,
+    }
+  }
+
+  return {
+    shouldCompact: true,
+    reason: milestoneReached ? 'milestone' : 'threshold',
+    milestoneReached,
+    matchedMilestone,
+    thresholdReached,
+    cooldownMinutes,
+    minGainTokens,
+  }
 }
 
 export function calculateTokenWarningState(
@@ -223,17 +328,28 @@ export async function shouldAutoCompact(
   const tokenCount = tokenCountWithEstimation(messages) - snipTokensFreed
   const threshold = getAutoCompactThreshold(model)
   const effectiveWindow = getEffectiveContextWindowSize(model)
+  const milestones = getConfiguredAutoCompactMilestones()
+  const compactCooldownMinutes =
+    getConfiguredCompactCooldownMinutes() ??
+    (milestones.length > 0 ? DEFAULT_MILESTONE_COMPACT_COOLDOWN_MINUTES : 0)
+  const compactMinGainTokens =
+    getConfiguredCompactMinGainTokens() ??
+    (milestones.length > 0 ? DEFAULT_MILESTONE_COMPACT_MIN_GAIN_TOKENS : 0)
+  const state = getCompactScopeState(model)
+  const decision = getAutoCompactPolicyDecision({
+    tokenUsage: tokenCount,
+    autoCompactThreshold: threshold,
+    milestones,
+    cooldownMinutes: compactCooldownMinutes,
+    minGainTokens: compactMinGainTokens,
+    state,
+  })
 
   logForDebugging(
-    `autocompact: tokens=${tokenCount} threshold=${threshold} effectiveWindow=${effectiveWindow}${snipTokensFreed > 0 ? ` snipFreed=${snipTokensFreed}` : ''}`,
+    `autocompact: tokens=${tokenCount} threshold=${threshold} effectiveWindow=${effectiveWindow} decision=${decision.reason}${decision.matchedMilestone !== null ? ` milestone=${decision.matchedMilestone}` : ''}${compactCooldownMinutes > 0 ? ` cooldown=${compactCooldownMinutes}m` : ''}${compactMinGainTokens > 0 ? ` minGain=${compactMinGainTokens}` : ''}${snipTokensFreed > 0 ? ` snipFreed=${snipTokensFreed}` : ''}`,
   )
 
-  const { isAboveAutoCompactThreshold } = calculateTokenWarningState(
-    tokenCount,
-    model,
-  )
-
-  return isAboveAutoCompactThreshold
+  return decision.shouldCompact
 }
 
 export async function autoCompactIfNeeded(
@@ -301,6 +417,21 @@ export async function autoCompactIfNeeded(
       notifyCompaction(querySource ?? 'compact', toolUseContext.agentId)
     }
     markPostCompaction()
+    const preCompactTokenCount =
+      sessionMemoryResult.preCompactTokenCount ??
+      tokenCountWithEstimation(messages)
+    const postCompactTokenCount =
+      sessionMemoryResult.truePostCompactTokenCount ??
+      sessionMemoryResult.postCompactTokenCount ??
+      0
+    recordCompactScopeState(model, {
+      lastCompactAt: new Date().toISOString(),
+      lastCompactInputTokens: preCompactTokenCount,
+      lastCompactSavedTokens: Math.max(
+        0,
+        preCompactTokenCount - postCompactTokenCount,
+      ),
+    })
     return {
       wasCompacted: true,
       compactionResult: sessionMemoryResult,
@@ -322,6 +453,20 @@ export async function autoCompactIfNeeded(
     // and the old message UUID will no longer exist in the new messages array
     setLastSummarizedMessageId(undefined)
     runPostCompactCleanup(querySource)
+    const preCompactTokenCount =
+      compactionResult.preCompactTokenCount ?? tokenCountWithEstimation(messages)
+    const postCompactTokenCount =
+      compactionResult.truePostCompactTokenCount ??
+      compactionResult.postCompactTokenCount ??
+      0
+    recordCompactScopeState(model, {
+      lastCompactAt: new Date().toISOString(),
+      lastCompactInputTokens: preCompactTokenCount,
+      lastCompactSavedTokens: Math.max(
+        0,
+        preCompactTokenCount - postCompactTokenCount,
+      ),
+    })
 
     return {
       wasCompacted: true,

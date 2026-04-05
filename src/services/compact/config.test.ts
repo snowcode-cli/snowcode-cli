@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  resolveConfiguredAutoCompactMilestones,
   resolveConfiguredAutoCompactWindowTokens,
+  resolveConfiguredCompactCooldownMinutes,
+  resolveConfiguredCompactMinGainTokens,
   resolveConfiguredCompactModel,
 } from './config.js'
 
@@ -56,4 +59,44 @@ test('auto-compact window ignores invalid values', () => {
   })
 
   assert.equal(windowTokens, null)
+})
+
+test('auto-compact milestones support comma-separated strings', () => {
+  const milestones = resolveConfiguredAutoCompactMilestones({
+    settingsAutoCompactMilestones: '120000, 80000, 100000',
+  })
+
+  assert.deepEqual(milestones, [80000, 100000, 120000])
+})
+
+test('auto-compact milestones support arrays', () => {
+  const milestones = resolveConfiguredAutoCompactMilestones({
+    settingsAutoCompactMilestones: [150000, 100000],
+  })
+
+  assert.deepEqual(milestones, [100000, 150000])
+})
+
+test('auto-compact milestones reject invalid entries', () => {
+  const milestones = resolveConfiguredAutoCompactMilestones({
+    settingsAutoCompactMilestones: '100000, nope, 120000',
+  })
+
+  assert.equal(milestones, null)
+})
+
+test('compact min gain accepts non-negative integers', () => {
+  const gain = resolveConfiguredCompactMinGainTokens({
+    settingsCompactMinGainTokens: '12000',
+  })
+
+  assert.equal(gain, 12000)
+})
+
+test('compact cooldown accepts zero', () => {
+  const cooldown = resolveConfiguredCompactCooldownMinutes({
+    settingsCompactCooldownMinutes: 0,
+  })
+
+  assert.equal(cooldown, 0)
 })
