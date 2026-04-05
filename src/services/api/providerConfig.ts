@@ -1,8 +1,8 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { loadAccounts } from '../../utils/accountManager.js'
-import type { AccountType } from '../../utils/accountManager.js'
+import { dirname, join } from 'node:path'
+import { loadAccounts, updateAccount } from '../../utils/accountManager.js'
+import type { Account, AccountType } from '../../utils/accountManager.js'
 import { assertAntigravityOAuthConfig } from '../../utils/antigravityOAuth.js'
 import {
   type ModelProviderPrefix,
@@ -27,6 +27,8 @@ export const DEFAULT_GEMINI_OPENAI_BASE_URL =
 export const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4'
 export const ANTIGRAVITY_DEFAULT_PROJECT_ID = 'rising-fact-p41fc'
 const GOOGLE_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token'
+const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token'
+const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 
 const CODEX_ALIAS_MODELS: Record<
   string,
@@ -75,7 +77,9 @@ export type ResolvedCodexCredentials = {
   apiKey: string
   accountId?: string
   authPath?: string
-  source: 'env' | 'auth.json' | 'none'
+  refreshToken?: string
+  accountRecordId?: string
+  source: 'env' | 'auth.json' | 'accounts' | 'none'
 }
 
 export type ResolvedAntigravityAuth = {
@@ -619,6 +623,146 @@ function loadCodexAuthJson(
   }
 }
 
+function readCodexAccountId(
+  authJson: Record<string, unknown> | undefined,
+  envAccountId?: string,
+  apiKey?: string,
+): string | undefined {
+  return (
+    envAccountId ??
+    (authJson
+      ? readNestedString(authJson, [
+          ['account_id'],
+          ['accountId'],
+          ['tokens', 'account_id'],
+          ['tokens', 'accountId'],
+          ['auth', 'account_id'],
+          ['auth', 'accountId'],
+        ])
+      : undefined) ??
+    parseChatgptAccountId(apiKey)
+  )
+}
+
+function readCodexRefreshToken(
+  authJson: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!authJson) return undefined
+  return readNestedString(authJson, [
+    ['refresh_token'],
+    ['refreshToken'],
+    ['tokens', 'refresh_token'],
+    ['tokens', 'refreshToken'],
+    ['auth', 'refresh_token'],
+    ['auth', 'refreshToken'],
+    ['token', 'refresh_token'],
+    ['token', 'refreshToken'],
+  ])
+}
+
+function getPreferredCodexOauthAccount(
+  accounts: ReturnType<typeof loadAccounts>['accounts'],
+): Account | undefined {
+  return [...accounts]
+    .filter(
+      account =>
+        account.enabled &&
+        account.type === 'codex_oauth' &&
+        Boolean(asTrimmedString(account.refreshToken)),
+    )
+    .sort((left, right) => {
+      const leftAddedAt = Date.parse(left.addedAt || '')
+      const rightAddedAt = Date.parse(right.addedAt || '')
+      return rightAddedAt - leftAddedAt
+    })[0]
+}
+
+function getJwtExpiryTimeMs(token: string | undefined): number | undefined {
+  if (!token) return undefined
+  const payload = decodeJwtPayload(token)
+  const exp = payload?.exp
+  return typeof exp === 'number' && Number.isFinite(exp) ? exp * 1000 : undefined
+}
+
+function isExpiredOrNearExpiry(token: string | undefined): boolean {
+  if (!token) return true
+  const expiryMs = getJwtExpiryTimeMs(token)
+  if (!expiryMs) return false
+  return expiryMs <= Date.now() + 60_000
+}
+
+async function refreshCodexAccessToken(
+  refreshToken: string,
+): Promise<{ accessToken: string; refreshToken?: string } | undefined> {
+  try {
+    const response = await fetch(CODEX_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: CODEX_CLIENT_ID,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }).toString(),
+    })
+    if (!response.ok) return undefined
+    const json = (await response.json()) as {
+      access_token?: string
+      refresh_token?: string
+    }
+    const accessToken = asTrimmedString(json.access_token)
+    if (!accessToken) return undefined
+    return {
+      accessToken,
+      refreshToken: asTrimmedString(json.refresh_token),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function persistCodexAuthJson(options: {
+  authPath: string
+  existing: Record<string, unknown> | undefined
+  accessToken: string
+  accountId?: string
+  refreshToken?: string
+}): void {
+  const next = options.existing
+    ? (JSON.parse(JSON.stringify(options.existing)) as Record<string, unknown>)
+    : {}
+
+  next.access_token = options.accessToken
+  if (options.accountId) {
+    next.account_id = options.accountId
+  }
+  if (options.refreshToken) {
+    next.refresh_token = options.refreshToken
+  }
+
+  const buckets = ['tokens', 'auth', 'token'] as const
+  for (const bucket of buckets) {
+    const rawBucket = next[bucket]
+    const target =
+      rawBucket && typeof rawBucket === 'object'
+        ? (rawBucket as Record<string, unknown>)
+        : bucket === 'tokens'
+          ? {}
+          : undefined
+    if (!target) continue
+    target.access_token = options.accessToken
+    if (options.accountId) {
+      target.account_id = options.accountId
+    }
+    if (options.refreshToken) {
+      target.refresh_token = options.refreshToken
+    }
+    next[bucket] = target
+  }
+
+  mkdirSync(dirname(options.authPath), { recursive: true })
+  writeFileSync(options.authPath, JSON.stringify(next, null, 2), 'utf8')
+}
+
 export function resolveCodexApiCredentials(
   env: NodeJS.ProcessEnv = process.env,
 ): ResolvedCodexCredentials {
@@ -657,23 +801,15 @@ export function resolveCodexApiCredentials(
     ['tokens', 'id_token'],
     ['tokens', 'idToken'],
   ])
-  const accountId =
-    envAccountId ??
-    readNestedString(authJson, [
-      ['account_id'],
-      ['accountId'],
-      ['tokens', 'account_id'],
-      ['tokens', 'accountId'],
-      ['auth', 'account_id'],
-      ['auth', 'accountId'],
-    ]) ??
-    parseChatgptAccountId(apiKey)
+  const accountId = readCodexAccountId(authJson, envAccountId, apiKey)
+  const refreshToken = readCodexRefreshToken(authJson)
 
   if (!apiKey) {
     return {
       apiKey: '',
       accountId,
       authPath,
+      refreshToken,
       source: 'none',
     }
   }
@@ -682,6 +818,121 @@ export function resolveCodexApiCredentials(
     apiKey,
     accountId,
     authPath,
+    refreshToken,
     source: 'auth.json',
+  }
+}
+
+export async function resolveCodexApiCredentialsForRequest(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ResolvedCodexCredentials> {
+  const envApiKey = asTrimmedString(env.CODEX_API_KEY)
+  const envAccountId =
+    asTrimmedString(env.CODEX_ACCOUNT_ID) ??
+    asTrimmedString(env.CHATGPT_ACCOUNT_ID)
+
+  if (envApiKey) {
+    return {
+      apiKey: envApiKey,
+      accountId: envAccountId ?? parseChatgptAccountId(envApiKey),
+      source: 'env',
+    }
+  }
+
+  const authPath = resolveCodexAuthPath(env)
+  const authJson = loadCodexAuthJson(authPath)
+  const authJsonApiKey = authJson
+    ? readNestedString(authJson, [
+        ['access_token'],
+        ['accessToken'],
+        ['tokens', 'access_token'],
+        ['tokens', 'accessToken'],
+        ['auth', 'access_token'],
+        ['auth', 'accessToken'],
+        ['token', 'access_token'],
+        ['token', 'accessToken'],
+        ['tokens', 'id_token'],
+        ['tokens', 'idToken'],
+      ])
+    : undefined
+  const authJsonRefreshToken = readCodexRefreshToken(authJson)
+  const authJsonAccountId = readCodexAccountId(
+    authJson,
+    envAccountId,
+    authJsonApiKey,
+  )
+
+  if (
+    authJsonApiKey &&
+    authJsonAccountId &&
+    !isExpiredOrNearExpiry(authJsonApiKey)
+  ) {
+    return {
+      apiKey: authJsonApiKey,
+      accountId: authJsonAccountId,
+      authPath,
+      refreshToken: authJsonRefreshToken,
+      source: 'auth.json',
+    }
+  }
+
+  const preferredAccount = getPreferredCodexOauthAccount(loadAccounts().accounts)
+  const refreshToken =
+    authJsonRefreshToken ?? asTrimmedString(preferredAccount?.refreshToken)
+
+  if (refreshToken) {
+    const refreshed = await refreshCodexAccessToken(refreshToken)
+    if (refreshed?.accessToken) {
+      const refreshedAccountId =
+        envAccountId ??
+        parseChatgptAccountId(refreshed.accessToken) ??
+        authJsonAccountId
+      const rotatedRefreshToken = refreshed.refreshToken ?? refreshToken
+
+      persistCodexAuthJson({
+        authPath,
+        existing: authJson,
+        accessToken: refreshed.accessToken,
+        accountId: refreshedAccountId,
+        refreshToken: rotatedRefreshToken,
+      })
+
+      if (
+        preferredAccount?.id &&
+        rotatedRefreshToken !== preferredAccount.refreshToken
+      ) {
+        updateAccount(preferredAccount.id, {
+          refreshToken: rotatedRefreshToken,
+        })
+      }
+
+      return {
+        apiKey: refreshed.accessToken,
+        accountId: refreshedAccountId,
+        authPath,
+        refreshToken: rotatedRefreshToken,
+        accountRecordId: preferredAccount?.id,
+        source: authJsonRefreshToken ? 'auth.json' : 'accounts',
+      }
+    }
+  }
+
+  if (authJsonApiKey) {
+    return {
+      apiKey: authJsonApiKey,
+      accountId: authJsonAccountId,
+      authPath,
+      refreshToken: authJsonRefreshToken,
+      source: 'auth.json',
+    }
+  }
+
+  return {
+    apiKey: '',
+    accountId: authJsonAccountId ?? envAccountId,
+    authPath,
+    refreshToken,
+    accountRecordId: preferredAccount?.id,
+    source: 'none',
   }
 }

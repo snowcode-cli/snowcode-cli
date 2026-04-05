@@ -1,10 +1,11 @@
 {
   "name": "snowcode",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "It's cold outside, isn't it?",
   "type": "module",
   "bin": {
-    "snowcode": "bin/snowcode"
+    "snowcode": "bin/snowcode",
+    "snowcode-dev": "bin/snowcode"
   },
   "files": [
     "bin/",

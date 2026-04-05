@@ -29,7 +29,7 @@ import {
 } from './codexShim.js'
 import {
   resolveApiKeyForModel,
-  resolveCodexApiCredentials,
+  resolveCodexApiCredentialsForRequest,
   resolveProviderRequest,
   resolveApiKeyFromAccounts,
 } from './providerConfig.js'
@@ -735,7 +735,7 @@ class OpenAIShimMessages {
     }
 
     if (request.transport === 'codex_responses') {
-      const credentials = resolveCodexApiCredentials()
+      const credentials = await resolveCodexApiCredentialsForRequest()
       if (!credentials.apiKey) {
         const authHint = credentials.authPath
           ? ` or place a Codex auth.json at ${credentials.authPath}`
