@@ -146,7 +146,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/snowcode-cli/snowcode-cli.git"
+    "url": "git+https://github.com/snowcode-cli/snowcode-cli.git"
   },
   "bugs": {
     "url": "https://github.com/snowcode-cli/snowcode-cli/issues"
