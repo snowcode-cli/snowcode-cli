@@ -435,6 +435,8 @@ interface OAuthFlowResult {
   }
   duplicateDecision?: {
     message: string
+    replaceHint?: string
+    keepHint?: string
     onReplace: () => OAuthFlowResult
     onKeep: () => OAuthFlowResult
   }
@@ -563,7 +565,9 @@ function OAuthFlow({
   if (flowState === 'duplicate') return (
     <Box flexDirection="column" gap={1}>
       <Text color="yellow">{msg}</Text>
-      <Text dimColor>R replace existing · K keep existing · Esc cancel</Text>
+      <Text dimColor>
+        {duplicateDecision?.replaceHint ?? 'R replace existing'} · {duplicateDecision?.keepHint ?? 'K keep existing'} · Esc cancel
+      </Text>
     </Box>
   )
 
@@ -1040,9 +1044,85 @@ function AuthCommand({
               redirect_uri: CODEX_REDIRECT_URI, grant_type: 'authorization_code', code_verifier: verifier,
             }, 'codex_oauth')
             const email = emailFromTokens(tokens)
+            const accountId =
+              parseChatgptAccountId(tokens.access_token) ??
+              parseChatgptAccountId(tokens.id_token)
             persistCodexOauthSession(tokens)
-            addAccount({ type: 'codex_oauth', label: `Codex: ${email}`, email, refreshToken: tokens.refresh_token, enabled: true })
             process.env.OPENAI_API_KEY = 'chatgpt-oauth'
+            const matchingAccounts = loadAccounts().accounts
+              .filter(
+                account =>
+                  account.type === 'codex_oauth' &&
+                  account.email?.trim().toLowerCase() === email.trim().toLowerCase(),
+              )
+              .sort(
+                (left, right) =>
+                  Date.parse(right.addedAt || '') - Date.parse(left.addedAt || ''),
+              )
+
+            if (matchingAccounts.length > 0) {
+              return {
+                email,
+                refreshToken: tokens.refresh_token ?? '',
+                duplicateDecision: {
+                  message: `This Codex account already exists: ${email}`,
+                  replaceHint: 'R replace existing',
+                  keepHint: 'K keep both',
+                  onReplace: () => {
+                    const [primary, ...duplicates] = matchingAccounts
+                    updateAccount(primary.id, {
+                      label: `Codex: ${email}`,
+                      email,
+                      accountId,
+                      refreshToken:
+                        tokens.refresh_token ?? primary.refreshToken,
+                      enabled: true,
+                    })
+                    for (const duplicate of duplicates) {
+                      removeAccount(duplicate.id)
+                    }
+                    appendAuthLog(
+                      'codex_oauth',
+                      `account replaced email=${email} removedDuplicates=${duplicates.length}`,
+                    )
+                    return {
+                      email,
+                      refreshToken:
+                        tokens.refresh_token ?? primary.refreshToken ?? '',
+                      completionMessage: `Codex account updated: ${email}`,
+                    }
+                  },
+                  onKeep: () => {
+                    addAccount({
+                      type: 'codex_oauth',
+                      label: `Codex: ${email}`,
+                      email,
+                      accountId,
+                      refreshToken: tokens.refresh_token,
+                      enabled: true,
+                    })
+                    appendAuthLog(
+                      'codex_oauth',
+                      `duplicate account saved email=${email}`,
+                    )
+                    return {
+                      email,
+                      refreshToken: tokens.refresh_token ?? '',
+                      completionMessage: `Codex duplicate account added: ${email}`,
+                    }
+                  },
+                },
+              }
+            }
+
+            addAccount({
+              type: 'codex_oauth',
+              label: `Codex: ${email}`,
+              email,
+              accountId,
+              refreshToken: tokens.refresh_token,
+              enabled: true,
+            })
             appendAuthLog('codex_oauth', `account saved email=${email}`)
             return { email, refreshToken: tokens.refresh_token ?? '' }
           }}

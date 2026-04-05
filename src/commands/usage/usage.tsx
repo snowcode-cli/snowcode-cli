@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useEffect, useState } from 'react'
 import { Box, Text, useInput } from '../../ink.js'
 import { type Account, loadAccounts, updateAccount } from '../../utils/accountManager.js'
+import { resolveCodexApiCredentials } from '../../services/api/providerConfig.js'
 import { assertAntigravityOAuthConfig } from '../../utils/antigravityOAuth.js'
 import { syncAntigravityLocalSessions } from '../../utils/antigravityLocalSessions.js'
 import { fetchAntigravityLocalUsage, getAntigravityLocalUsageSnapshotPath, getSavedAntigravityLocalUsage, type AntigravityLocalUsageSnapshot } from '../../utils/antigravityLocalUsage.js'
@@ -98,6 +99,16 @@ function UsageBar({ value, width = 12 }: { value: number; width?: number }) {
 }
 function err(e: unknown) {
   return e instanceof Error ? e.message : String(e)
+}
+function normalizeEmail(value?: string | null) {
+  const trimmed = value?.trim().toLowerCase()
+  return trimmed || null
+}
+function sortNewestFirst(accounts: Account[]) {
+  return [...accounts].sort(
+    (left, right) =>
+      Date.parse(right.addedAt || '') - Date.parse(left.addedAt || ''),
+  )
 }
 async function withRetry<T>(fn: () => Promise<T>, retries: number = 3) {
   let lastError: unknown
@@ -373,14 +384,119 @@ async function refreshCodexToken(refreshToken: string) {
   if (!json.access_token) throw new Error('Codex token refresh returned no access token')
   return json
 }
+async function refreshCodexTokenWithFallback(account: Account) {
+  const candidates: Array<{
+    refreshToken: string
+    account?: Account
+    accountId?: string
+  }> = []
+  const seen = new Set<string>()
+  const pushCandidate = (
+    refreshToken: string | undefined,
+    candidateAccount?: Account,
+    accountId?: string,
+  ) => {
+    const trimmed = refreshToken?.trim()
+    if (!trimmed || seen.has(trimmed)) return
+    seen.add(trimmed)
+    candidates.push({
+      refreshToken: trimmed,
+      account: candidateAccount,
+      accountId: accountId ?? candidateAccount?.accountId,
+    })
+  }
+
+  pushCandidate(account.refreshToken, account, account.accountId)
+
+  const accountEmail = normalizeEmail(account.email)
+  if (accountEmail) {
+    const siblingAccounts = sortNewestFirst(
+      loadAccounts().accounts.filter(
+        item =>
+          item.enabled &&
+          item.type === 'codex_oauth' &&
+          item.id !== account.id &&
+          normalizeEmail(item.email) === accountEmail,
+      ),
+    )
+    for (const sibling of siblingAccounts) {
+      pushCandidate(sibling.refreshToken, sibling, sibling.accountId)
+    }
+  }
+
+  const authJsonCredentials = resolveCodexApiCredentials()
+  const enabledCodexAccounts = loadAccounts().accounts.filter(
+    item => item.enabled && item.type === 'codex_oauth' && item.refreshToken,
+  )
+  if (
+    authJsonCredentials.refreshToken &&
+    (!account.accountId ||
+      authJsonCredentials.accountId === account.accountId ||
+      enabledCodexAccounts.length === 1)
+  ) {
+    pushCandidate(
+      authJsonCredentials.refreshToken,
+      undefined,
+      authJsonCredentials.accountId,
+    )
+  }
+
+  let lastError: unknown
+  for (const candidate of candidates) {
+    try {
+      const tokenResponse = await refreshCodexToken(candidate.refreshToken)
+      const rotatedRefreshToken =
+        tokenResponse.refresh_token ?? candidate.refreshToken
+
+      if (
+        candidate.account?.id &&
+        rotatedRefreshToken !== candidate.account.refreshToken
+      ) {
+        updateAccount(candidate.account.id, {
+          refreshToken: rotatedRefreshToken,
+        })
+      }
+
+      if (
+        account.id !== candidate.account?.id &&
+        rotatedRefreshToken !== account.refreshToken
+      ) {
+        updateAccount(account.id, {
+          refreshToken: rotatedRefreshToken,
+          ...(candidate.accountId ? { accountId: candidate.accountId } : {}),
+        })
+      }
+
+      return {
+        tokenResponse,
+        accountId: candidate.accountId,
+      }
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw (
+    lastError ??
+    new Error('Codex session expired. Re-run /auth for that ChatGPT account.')
+  )
+}
 async function fetchCodex(account: Account): Promise<CodexData> {
-  const tokenResponse = await refreshCodexToken(account.refreshToken!)
+  const { tokenResponse, accountId } = await refreshCodexTokenWithFallback(
+    account,
+  )
   const token = tokenResponse.access_token!
   if (tokenResponse.refresh_token && tokenResponse.refresh_token !== account.refreshToken) {
     updateAccount(account.id, { refreshToken: tokenResponse.refresh_token })
   }
   const headers: Record<string, string> = { Authorization: `Bearer ${token}`, 'User-Agent': 'codex-cli' }
-  if (account.email) headers['ChatGPT-Account-Id'] = account.email
+  const resolvedAccountId = account.accountId ?? accountId
+  if (resolvedAccountId) {
+    headers['ChatGPT-Account-Id'] = resolvedAccountId
+    if (resolvedAccountId !== account.accountId) {
+      updateAccount(account.id, { accountId: resolvedAccountId })
+    }
+  }
   const res = await fetch(CODEX_USAGE_URL, { headers })
   if (!res.ok) {
     const errorBody = await res.text().catch(() => 'unknown error')

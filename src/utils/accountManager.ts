@@ -28,6 +28,8 @@ export interface Account {
   apiKey?: string
   /** For Google accounts: email */
   email?: string
+  /** For providers that expose a stable account id (e.g. Codex / ChatGPT) */
+  accountId?: string
   /** For Google accounts: GCP project ID */
   projectId?: string
   /** ISO timestamp */
