@@ -36,7 +36,7 @@
     "link:global": "npm link",
     "unlink:global": "npm unlink -g snowcode",
     "test:providers": "bun run scripts/test-providers.ts",
-    "test:provider-recommendation": "node --test --experimental-strip-types src/utils/providerRecommendation.test.ts src/utils/providerProfile.test.ts",
+    "test:provider-recommendation": "bun test src/utils/providerRecommendation.test.ts src/utils/providerProfile.test.ts",
     "typecheck": "tsc --noEmit",
     "smoke": "bun run build && node dist/cli.mjs --version",
     "release:pack": "npm pack --dry-run",
