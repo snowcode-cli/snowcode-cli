@@ -3,6 +3,7 @@ import figures from 'figures';
 import React, { useCallback, useState } from 'react';
 import type { KeyboardEvent } from '../../../ink/events/keyboard-event.js';
 import { Box, Text } from '../../../ink.js';
+import { useKeybindings } from '../../../keybindings/useKeybinding.js';
 import { useAppState } from '../../../state/AppState.js';
 import type { Question, QuestionOption } from '../../../tools/AskUserQuestionTool/AskUserQuestionTool.js';
 import type { PastedContent } from '../../../utils/config.js';
@@ -95,6 +96,7 @@ export function QuestionView(t0) {
   let t4;
   if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
     t4 = () => {
+      setFooterIndex(0);
       setIsFooterFocused(true);
     };
     $[3] = t4;
@@ -105,6 +107,7 @@ export function QuestionView(t0) {
   let t5;
   if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
     t5 = () => {
+      setFooterIndex(0);
       setIsFooterFocused(false);
     };
     $[4] = t5;
@@ -159,6 +162,33 @@ export function QuestionView(t0) {
     t6 = $[11];
   }
   const handleKeyDown = t6;
+  useKeybindings({
+    "select:previous": () => {
+      if (footerIndex === 0) {
+        handleUpFromFooter();
+      } else {
+        setFooterIndex(0);
+      }
+    },
+    "select:next": () => {
+      if (isInPlanMode && footerIndex === 0) {
+        setFooterIndex(1);
+      }
+    },
+    "select:accept": () => {
+      if (footerIndex === 0) {
+        onRespondToClaude();
+      } else {
+        onFinishPlanInterview();
+      }
+    },
+    "select:cancel": () => {
+      onCancel();
+    }
+  }, {
+    context: "Select",
+    isActive: isFooterFocused
+  });
   let handleOpenEditor;
   let questionText;
   let t7;

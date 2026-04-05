@@ -33,6 +33,12 @@ export function AutoUpdaterWrapper(t0) {
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = () => {
       const checkInstallation = async function checkInstallation() {
+        if ("production" === 'development' || "production" === 'test') {
+          logForDebugging(
+            'AutoUpdaterWrapper: Skipping detection in test/dev environment',
+          );
+          return;
+        }
         if (feature("SKIP_DETECTION_WHEN_AUTOUPDATES_DISABLED") && isAutoUpdaterDisabled()) {
           logForDebugging("AutoUpdaterWrapper: Skipping detection, auto-updates disabled");
           return;

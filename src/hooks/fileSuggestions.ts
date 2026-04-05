@@ -26,6 +26,7 @@ import {
 } from '../utils/hooks.js'
 import { logError } from '../utils/log.js'
 import { expandPath } from '../utils/path.js'
+import { getPlatform } from '../utils/platform.js'
 import { ripGrep } from '../utils/ripgrep.js'
 import { getInitialSettings } from '../utils/settings/settings.js'
 import { createSignal } from '../utils/signal.js'
@@ -76,6 +77,14 @@ let lastGitIndexMtime: number | null = null
 // (e.g. `git add` of an already-tracked file bumps index mtime but not the list).
 let loadedTrackedSignature: string | null = null
 let loadedMergedSignature: string | null = null
+
+function getTrackedFilesTimeoutMs(): number {
+  return getPlatform() === 'windows' ? 8_000 : 5_000
+}
+
+function getRefreshThrottleMs(): number {
+  return getPlatform() === 'windows' ? 30_000 : 5_000
+}
 
 /**
  * Clear all file suggestion caches.
@@ -268,7 +277,7 @@ async function getFilesUsingGit(
     const trackedResult = await execFileNoThrowWithCwd(
       gitExe(),
       ['-c', 'core.quotepath=false', 'ls-files', '--recurse-submodules'],
-      { timeout: 5000, abortSignal, cwd: repoRoot },
+      { timeout: getTrackedFilesTimeoutMs(), abortSignal, cwd: repoRoot },
     )
     logForDebugging(
       `[FileIndex] git ls-files (tracked) took ${Date.now() - lsFilesStart}ms`,
@@ -278,6 +287,12 @@ async function getFilesUsingGit(
       logForDebugging(
         `[FileIndex] git ls-files failed (code=${trackedResult.code}, stderr=${trackedResult.stderr}), falling back to ripgrep`,
       )
+      if (cachedTrackedFiles.length > 0) {
+        logForDebugging(
+          `[FileIndex] reusing cached tracked file list (${cachedTrackedFiles.length} files) after git failure`,
+        )
+        return cachedTrackedFiles
+      }
       return null
     }
 
@@ -632,7 +647,6 @@ function findMatchingFiles(
  * has actually changed. This prevents every keystroke from spawning git ls-files
  * and rebuilding the nucleo index.
  */
-const REFRESH_THROTTLE_MS = 5_000
 export function startBackgroundCacheRefresh(): void {
   if (fileListRefreshPromise) return
 
@@ -642,16 +656,18 @@ export function startBackgroundCacheRefresh(): void {
   // files, which don't bump .git/index. The signature checks downstream skip
   // the rebuild when the 5s refresh finds nothing actually changed.
   const indexMtime = getGitIndexMtime()
+  const refreshThrottleMs = getRefreshThrottleMs()
   if (fileIndex) {
     const gitStateChanged =
       indexMtime !== null && indexMtime !== lastGitIndexMtime
-    if (!gitStateChanged && Date.now() - lastRefreshMs < REFRESH_THROTTLE_MS) {
+    if (!gitStateChanged && Date.now() - lastRefreshMs < refreshThrottleMs) {
       return
     }
   }
 
   const generation = cacheGeneration
   const refreshStart = Date.now()
+  lastRefreshMs = refreshStart
   // Ensure the FileIndex singleton exists — it's progressively queryable
   // via readyCount while the build runs. Callers searching early get partial
   // results; indexBuildComplete fires after .done so they can re-search.
@@ -667,7 +683,6 @@ export function startBackgroundCacheRefresh(): void {
       // changed mid-refresh, the next call will see the newer mtime and
       // correctly refresh again.
       lastGitIndexMtime = indexMtime
-      lastRefreshMs = Date.now()
       logForDebugging(
         `[FileIndex] cache refresh completed in ${Date.now() - refreshStart}ms`,
       )

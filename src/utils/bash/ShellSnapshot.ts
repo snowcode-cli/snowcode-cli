@@ -413,6 +413,13 @@ async function getSnapshotScript(
 export const createAndSaveSnapshot = async (
   binShell: string,
 ): Promise<string | undefined> => {
+  if (getPlatform() === 'windows') {
+    logForDebugging(
+      'Skipping shell snapshot creation on Windows to avoid slow Git Bash startup',
+    )
+    return undefined
+  }
+
   const shellType = binShell.includes('zsh')
     ? 'zsh'
     : binShell.includes('bash')
