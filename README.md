@@ -18,9 +18,6 @@ bun run build
 node dist/cli.mjs
 ```
 
-Antigravity / Google OAuth credentials are expected in Snowcode `settings.json`
-via `antigravityClientId` and `antigravityClientSecret`, not in the repo.
-
 Useful scripts:
 
 ```bash
