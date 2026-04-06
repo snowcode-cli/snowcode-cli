@@ -254,6 +254,16 @@ export function PreviewQuestionView({
   const previewMaxLines = useMemo(() => {
     return minContentHeight ? Math.max(1, minContentHeight - PREVIEW_OVERHEAD) : undefined;
   }, [minContentHeight]);
+  const previewMinHeight = useMemo(() => {
+    if (!previewMaxLines) {
+      return undefined;
+    }
+    return allOptions.reduce((maxHeight, option) => {
+      const preview = option.preview || 'No preview available';
+      const previewLineCount = preview.split('\n').length;
+      return Math.max(maxHeight, Math.min(previewLineCount, previewMaxLines));
+    }, 1);
+  }, [allOptions, previewMaxLines]);
   return <Box flexDirection="column" marginTop={1} tabIndex={0} autoFocus onKeyDown={handleKeyDown}>
       <Divider color="inactive" />
       <Box flexDirection="column" paddingTop={0}>
@@ -282,7 +292,7 @@ export function PreviewQuestionView({
 
             {/* Right panel: preview + notes */}
             <Box flexDirection="column" flexGrow={1}>
-              <PreviewBox content={previewContent || 'No preview available'} maxLines={previewMaxLines} minWidth={minContentWidth} maxWidth={previewMaxWidth} />
+              <PreviewBox key={focusedOption?.label || 'no-preview'} content={previewContent || 'No preview available'} maxLines={previewMaxLines} minHeight={previewMinHeight} minWidth={minContentWidth} maxWidth={previewMaxWidth} />
               <Box marginTop={1} flexDirection="row" gap={1}>
                 <Text color="suggestion">Notes:</Text>
                 {isInNotesInput ? <TextInput value={notesValue} placeholder="Add notes on this design…" onChange={value => {

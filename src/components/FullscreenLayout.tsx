@@ -261,8 +261,8 @@ export function computeUnseenDivider(messages: readonly Message[], dividerIndex:
  * Outside fullscreen mode, renders content sequentially so the existing
  * main-screen scrollback rendering works unchanged.
  *
- * Fullscreen mode defaults on for ants (CLAUDE_CODE_NO_FLICKER=0 to opt out)
- * and off for external users (CLAUDE_CODE_NO_FLICKER=1 to opt in).
+ * Snowcode defaults fullscreen mode on for interactive users.
+ * CLAUDE_CODE_NO_FLICKER remains the explicit opt-out / opt-in override.
  * The <AlternateScreen> wrapper
  * (alt buffer + mouse tracking + height constraint) lives at REPL's root
  * so nothing can accidentally render outside it.

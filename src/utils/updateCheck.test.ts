@@ -119,3 +119,32 @@ test('refreshUpdateCache refetches when a fresh cache is behind the installed ve
   expect(getAvailableUpdate(cache)).toBeNull()
   expect(readUpdateCache()?.latestVersion).toBe(packageVersion.version)
 })
+
+test('refreshUpdateCache refetches when a no-update cache is stale and a newer release exists', async () => {
+  const dir = createTempConfigDir()
+
+  writeFileSync(
+    join(dir, 'update-check.json'),
+    JSON.stringify({
+      latestVersion: packageVersion.version,
+      checkedAt: Date.now() - 6 * 60 * 1000,
+    }),
+  )
+
+  const nextVersion = `${packageVersion.version}.1`
+  let fetchCalls = 0
+  globalThis.fetch = (async () => {
+    fetchCalls += 1
+    return new Response(JSON.stringify({ version: nextVersion }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  const cache = await refreshUpdateCache()
+
+  expect(fetchCalls).toBe(1)
+  expect(cache?.latestVersion).toBe(nextVersion)
+  expect(getAvailableUpdate(cache)).toBe(nextVersion)
+  expect(readUpdateCache()?.latestVersion).toBe(nextVersion)
+})

@@ -639,6 +639,31 @@ class OpenAIShimMessages {
     this.agentProviderOverride = agentProviderOverride
   }
 
+  async countTokens(params: {
+    system?: unknown
+    messages?: Array<{
+      role: string
+      message?: { role?: string; content?: unknown }
+      content?: unknown
+    }>
+    tools?: Array<{
+      name: string
+      description?: string
+      input_schema?: Record<string, unknown>
+    }>
+  }): Promise<{ input_tokens: number }> {
+    const openaiMessages = convertMessages(params.messages ?? [], params.system)
+    const openaiTools = params.tools ? convertTools(params.tools) : []
+    const serialized = JSON.stringify({
+      messages: openaiMessages,
+      tools: openaiTools,
+    })
+
+    return {
+      input_tokens: Math.max(1, Math.round(serialized.length / 4)),
+    }
+  }
+
   create(
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },

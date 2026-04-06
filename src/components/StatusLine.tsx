@@ -39,7 +39,10 @@ import { getCwd } from '../utils/cwd.js'
 import { logForDebugging } from '../utils/debug.js'
 import { formatDuration, formatTokens } from '../utils/format.js'
 import { createBaseHookInput, executeStatusLineCommand } from '../utils/hooks.js'
-import { getLastAssistantMessage } from '../utils/messages.js'
+import {
+  getLastAssistantMessage,
+  getMessagesAfterCompactBoundary,
+} from '../utils/messages.js'
 import {
   getRuntimeMainLoopModel,
   type ModelName,
@@ -96,6 +99,10 @@ function formatSessionDuration(ms: number): string {
   return formatDuration(ms, { hideTrailingZeros: true }).replace(/\s\d+s$/, '')
 }
 
+function getActiveContextMessages(messages: Message[]): Message[] {
+  return getMessagesAfterCompactBoundary(messages)
+}
+
 function StatusLineElapsed(): React.ReactNode {
   const [, setTick] = useState(0)
 
@@ -119,6 +126,7 @@ function buildStatusLineCommandInput(
   mainLoopModel: ModelName,
   vimMode?: VimMode,
 ): StatusLineCommandInput {
+  const activeMessages = getActiveContextMessages(messages)
   const agentType = getMainThreadAgentType()
   const worktreeSession = getCurrentWorktreeSession()
   const runtimeModel = getRuntimeMainLoopModel({
@@ -127,7 +135,7 @@ function buildStatusLineCommandInput(
     exceeds200kTokens,
   })
   const outputStyleName = settings?.outputStyle || DEFAULT_OUTPUT_STYLE_NAME
-  const currentUsage = getCurrentUsage(messages)
+  const currentUsage = getCurrentUsage(activeMessages)
   const contextWindowSize = getContextWindowForModel(runtimeModel, getSdkBetas())
   const contextPercentages = calculateContextPercentages(
     currentUsage,
@@ -278,10 +286,12 @@ function StatusLineInner({
 
     try {
       let exceeds200kTokens = previousStateRef.current.exceeds200kTokens
-      const currentMessageId = getLastAssistantMessageId(msgs)
+      const activeMessages = getActiveContextMessages(msgs)
+      const currentMessageId = getLastAssistantMessageId(activeMessages)
 
       if (currentMessageId !== previousStateRef.current.messageId) {
-        exceeds200kTokens = doesMostRecentAssistantMessageExceed200k(msgs)
+        exceeds200kTokens =
+          doesMostRecentAssistantMessageExceed200k(activeMessages)
         previousStateRef.current.messageId = currentMessageId
         previousStateRef.current.exceeds200kTokens = exceeds200kTokens
       }
@@ -401,8 +411,9 @@ function StatusLineInner({
     exceeds200kTokens: previousStateRef.current.exceeds200kTokens,
   })
   const contextWindowSize = getContextWindowForModel(runtimeModel, getSdkBetas())
-  const currentTokens = tokenCountWithEstimation(messagesRef.current)
-  const currentUsage = getCurrentUsage(messagesRef.current) ?? {
+  const activeMessages = getActiveContextMessages(messagesRef.current)
+  const currentTokens = tokenCountWithEstimation(activeMessages)
+  const currentUsage = getCurrentUsage(activeMessages) ?? {
     input_tokens: currentTokens,
     output_tokens: 0,
     cache_creation_input_tokens: 0,

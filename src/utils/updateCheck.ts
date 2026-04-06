@@ -11,7 +11,8 @@ import { getClaudeConfigHomeDir } from './envUtils.js'
 declare const MACRO: { DISPLAY_VERSION?: string; VERSION: string }
 
 const PKG_NAME = 'snowcode'
-const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const UPDATE_AVAILABLE_CACHE_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const NO_UPDATE_CACHE_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 const require = createRequire(import.meta.url)
 
 export type UpdateCache = { latestVersion: string; checkedAt: number }
@@ -84,8 +85,21 @@ function writeUpdateCache(cache: UpdateCache): void {
 export function isUpdateCacheFresh(
   cache: UpdateCache | null,
   now: number = Date.now(),
+  currentVersion: string = getCurrentVersion(),
 ): boolean {
-  return Boolean(cache && now - cache.checkedAt < CHECK_INTERVAL_MS)
+  if (!cache) return false
+
+  const comparison = compareVersions(cache.latestVersion, currentVersion)
+  if (comparison < 0) {
+    return false
+  }
+
+  const maxAgeMs =
+    comparison > 0
+      ? UPDATE_AVAILABLE_CACHE_INTERVAL_MS
+      : NO_UPDATE_CACHE_INTERVAL_MS
+
+  return now - cache.checkedAt < maxAgeMs
 }
 
 async function fetchLatestVersion(timeoutMs: number): Promise<string | null> {
@@ -116,9 +130,11 @@ export async function refreshUpdateCache(options?: {
 }): Promise<UpdateCache | null> {
   const cache = readUpdateCache()
   const currentVersion = getCurrentVersion()
-  const canReuseFreshCache =
-    isUpdateCacheFresh(cache) &&
-    (!cache || compareVersions(cache.latestVersion, currentVersion) >= 0)
+  const canReuseFreshCache = isUpdateCacheFresh(
+    cache,
+    Date.now(),
+    currentVersion,
+  )
 
   if (!options?.force && canReuseFreshCache) {
     return cache

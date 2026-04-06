@@ -18,6 +18,9 @@ const tempDirs: string[] = []
 type OpenAIShimClient = {
   beta: {
     messages: {
+      countTokens: (
+        params: Record<string, unknown>,
+      ) => Promise<{ input_tokens: number }>
       create: (
         params: Record<string, unknown>,
         options?: Record<string, unknown>,
@@ -57,6 +60,30 @@ function makeStreamChunks(chunks: unknown[]): string[] {
 beforeEach(() => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
+})
+
+test('provides countTokens compatibility for shim clients', async () => {
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages.countTokens({
+    model: 'gpt-4o',
+    system: 'system prompt',
+    messages: [{ role: 'user', content: 'hello world' }],
+    tools: [
+      {
+        name: 'Echo',
+        description: 'Echo input',
+        input_schema: {
+          type: 'object',
+          properties: {
+            text: { type: 'string' },
+          },
+        },
+      },
+    ],
+  })
+
+  expect(result.input_tokens).toBeGreaterThan(0)
 })
 
 afterEach(() => {

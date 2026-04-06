@@ -169,7 +169,12 @@ export async function countMessagesTokensWithAPI(
           ? betas.filter(b => VERTEX_COUNT_TOKENS_ALLOWED_BETAS.has(b))
           : betas
 
-      const response = await anthropic.beta.messages.countTokens({
+      const countTokens = anthropic.beta?.messages?.countTokens
+      if (typeof countTokens !== 'function') {
+        return roughTokenCountEstimationForApiInputs(messages, tools)
+      }
+
+      const response = await countTokens.call(anthropic.beta.messages, {
         model: normalizeModelStringForAPI(model),
         messages:
           // When we pass tools and no messages, we need to pass a dummy message
@@ -385,6 +390,29 @@ function roughTokenCountEstimationForContent(
   for (const block of content) {
     totalTokens += roughTokenCountEstimationForBlock(block)
   }
+  return totalTokens
+}
+
+function roughTokenCountEstimationForApiInputs(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): number {
+  let totalTokens = 0
+
+  for (const message of messages) {
+    totalTokens += roughTokenCountEstimationForContent(
+      message.content as
+        | string
+        | Array<Anthropic.ContentBlock>
+        | Array<Anthropic.ContentBlockParam>,
+    )
+    totalTokens += 4
+  }
+
+  if (tools.length > 0) {
+    totalTokens += roughTokenCountEstimation(jsonStringify(tools))
+  }
+
   return totalTokens
 }
 

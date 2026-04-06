@@ -13,6 +13,11 @@ import { execFileNoThrow } from './execFileNoThrow.js'
 import { findExecutable } from './findExecutable.js'
 import { logError } from './log.js'
 import { getPlatform } from './platform.js'
+import {
+  fallbackRipGrep,
+  fallbackRipGrepFileCount,
+  fallbackRipGrepStream,
+} from './ripgrepFallback.js'
 import { countCharInString } from './stringUtils.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -83,6 +88,18 @@ export function ripgrepCommand(): {
     rgArgs: config.args,
     argv0: config.argv0,
   }
+}
+
+function isRipgrepBinaryAvailable(config = getRipgrepConfig()): boolean {
+  if (config.mode === 'embedded') {
+    return true
+  }
+
+  if (config.mode === 'builtin') {
+    return existsSync(config.command)
+  }
+
+  return true
 }
 
 const MAX_BUFFER_SIZE = 20_000_000 // 20MB; large monorepos can have 200k+ files
@@ -256,6 +273,10 @@ async function ripGrepFileCount(
   target: string,
   abortSignal: AbortSignal,
 ): Promise<number> {
+  if (!isRipgrepBinaryAvailable()) {
+    return fallbackRipGrepFileCount(args, target, abortSignal)
+  }
+
   await codesignRipgrepIfNecessary()
   const { rgPath, rgArgs, argv0 } = ripgrepCommand()
 
@@ -306,6 +327,10 @@ export async function ripGrepStream(
   abortSignal: AbortSignal,
   onLines: (lines: string[]) => void,
 ): Promise<void> {
+  if (!isRipgrepBinaryAvailable()) {
+    return fallbackRipGrepStream(args, target, abortSignal, onLines)
+  }
+
   await codesignRipgrepIfNecessary()
   const { rgPath, rgArgs, argv0 } = ripgrepCommand()
 
@@ -355,6 +380,10 @@ export async function ripGrep(
   target: string,
   abortSignal: AbortSignal,
 ): Promise<string[]> {
+  if (!isRipgrepBinaryAvailable()) {
+    return fallbackRipGrep(args, target, abortSignal)
+  }
+
   await codesignRipgrepIfNecessary()
 
   // Test ripgrep on first use and cache the result (fire and forget)
@@ -564,6 +593,18 @@ const testRipgrepOnFirstUse = memoize(async (): Promise<void> => {
 
   const config = getRipgrepConfig()
 
+  if (!isRipgrepBinaryAvailable(config)) {
+    ripgrepStatus = {
+      working: false,
+      lastTested: Date.now(),
+      config,
+    }
+    logForDebugging(
+      `Ripgrep binary unavailable; using JS fallback (mode=${config.mode}, path=${config.command})`,
+    )
+    return
+  }
+
   try {
     let test: { code: number; stdout: string }
 
@@ -639,6 +680,10 @@ async function codesignRipgrepIfNecessary() {
   }
   const builtinPath = config.command
 
+  if (!existsSync(builtinPath)) {
+    return
+  }
+
   // First, check to see if ripgrep is already signed
   const lines = (
     await execFileNoThrow('codesign', ['-vv', '-d', builtinPath], {
@@ -684,4 +729,11 @@ async function codesignRipgrepIfNecessary() {
   } catch (e) {
     logError(e)
   }
+}
+
+export function resetRipgrepForTests(): void {
+  ripgrepStatus = null
+  alreadyDoneSignCheck = false
+  getRipgrepConfig.cache.clear?.()
+  testRipgrepOnFirstUse.cache.clear?.()
 }
